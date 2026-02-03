@@ -205,3 +205,25 @@ cython_debug/
 marimo/_static/
 marimo/_lsp/
 __marimo__/
+
+# AI Guardian specific
+# Data files
+data/*.wav
+data/*.mp4
+data/*.jpg
+data/*.png
+data/*.jpeg
+
+# Model files
+models/*.pt
+models/*.pth
+models/*.onnx
+models/*.h5
+models/*.pb
+
+# Logs
+logs/
+
+# OS specific
+.DS_Store
+Thumbs.db

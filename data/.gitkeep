@@ -1,0 +1,7 @@
+# Test data directory
+# Add sample audio, video, and image files here for testing
+
+*.wav
+*.mp4
+*.jpg
+*.png

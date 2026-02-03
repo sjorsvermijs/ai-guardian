@@ -1,0 +1,8 @@
+# Model weights directory
+# Store pretrained model weights here
+
+*.pt
+*.pth
+*.onnx
+*.h5
+*.pb
