@@ -33,6 +33,7 @@ class Config:
         
         # rPPG Pipeline Configuration
         self.rppg_config = {
+            'model_name': 'ME-chunk.rlap',  # Best performing model (84.5% SQI)
             'model_path': MODELS_DIR / 'rppg_model.pt',
             'fps': 30,
             'window_size': 10,  # seconds

@@ -79,7 +79,9 @@ python main.py
 ## 📋 Pipeline Details
 
 ### HeAR Pipeline
+
 Analyzes audio recordings to detect:
+
 - Respiratory rate and patterns
 - Coughing episodes
 - Breathing abnormalities
@@ -89,7 +91,9 @@ Analyzes audio recordings to detect:
 **Output**: Acoustic health indicators with confidence scores
 
 ### rPPG Pipeline
+
 Extracts vital signs from video:
+
 - Heart rate (BPM)
 - Oxygen saturation (SpO2)
 - Respiratory rate
@@ -99,7 +103,9 @@ Extracts vital signs from video:
 **Output**: Vital signs measurements with quality metrics
 
 ### MedGemma VQA Pipeline
+
 Visual inspection for critical indicators:
+
 - Cyanosis (bluish discoloration)
 - Nasal flaring
 - Chest retractions
@@ -187,6 +193,7 @@ print(f"Confidence: {triage_report.confidence:.2%}")
 ## 🔐 Privacy & Security
 
 This system processes sensitive medical data. Ensure:
+
 - All data is handled in compliance with HIPAA/local regulations
 - Models are run locally or in secure environments
 - Patient data is encrypted at rest and in transit
