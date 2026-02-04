@@ -102,13 +102,23 @@ class FusionEngine:
             
             # Check for abnormal vital signs
             hr = vital_signs.get('heart_rate', 0)
-            rr = vital_signs.get('respiratory_rate', 0)
+            rr = vital_signs.get('respiratory_rate')
             spo2 = vital_signs.get('spo2', 100)
             
             if hr > 120 or hr < 50:
-                critical_alerts.append(f"Abnormal heart rate: {hr} BPM")
-            if rr > 30 or rr < 8:
-                critical_alerts.append(f"Abnormal respiratory rate: {rr} breaths/min")
+                critical_alerts.append(f"Abnormal heart rate: {hr:.1f} BPM")
+            
+            # Respiratory rate assessment (if available from HRV)
+            if rr is not None:
+                if rr > 30:
+                    critical_alerts.append(f"Severe tachypnea: {rr:.1f} breaths/min (normal: 12-20)")
+                elif rr > 20:
+                    critical_alerts.append(f"Tachypnea: {rr:.1f} breaths/min (normal: 12-20)")
+                elif rr < 8:
+                    critical_alerts.append(f"Severe bradypnea: {rr:.1f} breaths/min (normal: 12-20)")
+                elif rr < 12:
+                    recommendations.append(f"Mild bradypnea: {rr:.1f} breaths/min - monitor breathing")
+            
             if spo2 < 90:
                 critical_alerts.append(f"Low oxygen saturation: {spo2}%")
         

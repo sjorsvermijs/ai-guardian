@@ -121,6 +121,10 @@ class RPPGPipeline(BasePipeline):
             hrv_metrics = result.get('hrv', {})
             latency = result.get('latency', 0.0)
             
+            # Convert breathing rate from Hz to breaths/min
+            if 'breathingrate' in hrv_metrics:
+                hrv_metrics['breathingrate'] = hrv_metrics['breathingrate'] * 60
+            
             # Get BVP signal if available
             bvp_signal = None
             try:
@@ -135,6 +139,7 @@ class RPPGPipeline(BasePipeline):
                 "heart_rate": hr,
                 "signal_quality": signal_quality,
                 "heart_rate_variability": hrv_metrics,
+                "respiratory_rate": hrv_metrics.get('breathingrate') if hrv_metrics else None,
                 "latency_ms": latency * 1000 if latency else 0.0,
             }
             
