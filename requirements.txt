@@ -12,9 +12,9 @@ soundfile>=0.12.0
 torch>=2.0.0
 torchaudio>=2.0.0
 
-# MedGemma VQA (Placeholder - replace with actual package when available)
-transformers>=4.35.0
-pillow>=10.0.0
+# MedGemma for clinical interpretation (MLX optimized for Apple Silicon)
+mlx>=0.0.8
+mlx-lm>=0.0.9
 
 # Data handling
 pandas>=2.0.0

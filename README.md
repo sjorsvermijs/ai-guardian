@@ -3,10 +3,19 @@
 A comprehensive medical triage system that combines three AI pipelines for high-confidence health assessment:
 
 - **HeAR (Health Acoustic Representations)**: Analyzes audio for respiratory patterns and acoustic health indicators
-- **rPPG (remote photoplethysmography)**: Extracts vital signs from video using subtle skin color changes
+- **rPPG (remote photoplethysmography)**: Extracts vital signs from video using subtle skin color changes (supports webcam!)
 - **MedGemma VQA (Visual Question Answering)**: Visually inspects images for critical medical red flags
 
 By fusing these three modalities, AI Guardian provides medical reasoning that goes far beyond what any single sensor could achieve alone.
+
+## ✨ Features
+
+- **🎥 Webcam Monitoring**: Real-time vital signs from laptop camera (HR, RR, HRV)
+- **📹 Video Analysis**: Process pre-recorded videos for vital sign extraction
+- **🎤 Audio Analysis**: Detect respiratory distress from cough/breathing sounds
+- **👁️ Visual Inspection**: Identify critical medical signs (cyanosis, retractions)
+- **🔗 Multi-Modal Fusion**: High-confidence triage by cross-validating all inputs
+- **🔒 Privacy-First**: All processing happens locally, no cloud uploads
 
 ## 🏗️ Project Structure
 
@@ -70,11 +79,60 @@ pip install -r requirements.txt
 # - MedGemma VQA model
 ```
 
-### 3. Run the Application
+### 3. Run Webcam Monitoring (Quick Demo)
+
+```bash
+# First, test camera access
+python test_camera.py
+
+# Recommended: Simple capture mode (most responsive)
+python webcam_monitor_simple.py
+
+# Alternative: Basic snapshot mode
+python webcam_monitor.py
+
+# Advanced: Live preview mode (less responsive quit)
+python webcam_monitor_live.py
+```
+
+**First time?** See [Webcam Monitoring Guide](docs/WEBCAM_MONITORING.md) for setup tips and troubleshooting.
+
+### 4. Run Full Application
 
 ```bash
 python main.py
 ```
+
+## 📹 Webcam Vital Signs Monitoring
+
+AI Guardian can measure your vital signs using just your laptop's webcam:
+
+**Measured Metrics:**
+
+- ❤️ Heart Rate (BPM)
+- 🫁 Respiratory Rate (breaths/min)
+- 📊 Heart Rate Variability (HRV)
+- 📡 Signal Quality Index (0-100%)
+
+**Quick Start:**
+
+```python
+from src.pipelines.rppg.pipeline import RPPGPipeline
+from src.core.config import config
+
+pipeline = RPPGPipeline(config.rppg_config)
+pipeline.initialize()
+
+# Capture 30 seconds from webcam
+result = pipeline.process_webcam(camera_index=0, duration=30)
+
+print(f"Heart Rate: {result.data['heart_rate']:.1f} BPM")
+print(f"Respiratory Rate: {result.data['respiratory_rate']:.1f} br/min")
+
+pipeline.cleanup()
+```
+
+📖 **Full Documentation**: [docs/WEBCAM_MONITORING.md](docs/WEBCAM_MONITORING.md)
 
 ## 📋 Pipeline Details
 

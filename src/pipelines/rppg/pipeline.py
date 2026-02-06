@@ -255,6 +255,115 @@ class RPPGPipeline(BasePipeline):
             return False
         return True
     
+    def process_webcam(self, camera_index: int = 0, duration: float = 10.0) -> PipelineResult:
+        """
+        Process video from webcam for a specified duration
+        
+        Args:
+            camera_index: Camera index (0 for default webcam)
+            duration: Duration in seconds to capture video
+            
+        Returns:
+            PipelineResult with vital signs from captured video
+        """
+        if not self.is_initialized:
+            raise RuntimeError("Pipeline not initialized. Call initialize() first.")
+        
+        import time
+        
+        print(f"Starting webcam capture (camera {camera_index}) for {duration}s...")
+        print("Position yourself in front of camera, ensure good lighting...")
+        
+        try:
+            # Use open-rppg's video_capture context manager
+            with self.model.video_capture(camera_index):
+                start_time = time.time()
+                
+                # Wait for specified duration to collect data
+                while time.time() - start_time < duration:
+                    elapsed = time.time() - start_time
+                    remaining = duration - elapsed
+                    
+                    # Show progress every second
+                    if int(elapsed) != int(elapsed - 0.1):
+                        print(f"  Capturing... {remaining:.1f}s remaining", end='\r')
+                    
+                    time.sleep(0.1)
+                
+                print(f"\n  ✓ Capture complete ({duration}s)")
+                
+                # Get results
+                result = self.model.hr(start=0, end=duration)
+                
+                if not result or result['hr'] is None:
+                    return PipelineResult(
+                        pipeline_name="rPPG",
+                        timestamp=datetime.now(),
+                        confidence=0.0,
+                        data={},
+                        warnings=["No heart rate detected - ensure face is visible"],
+                        errors=[],
+                        metadata={'camera_index': camera_index, 'duration': duration}
+                    )
+                
+                # Extract results
+                hr = float(result.get('hr', 0.0))
+                signal_quality = float(result.get('SQI', 0.0))
+                hrv_metrics = result.get('hrv', {})
+                latency = result.get('latency', 0.0)
+                
+                # Convert breathing rate from Hz to breaths/min
+                if 'breathingrate' in hrv_metrics:
+                    hrv_metrics['breathingrate'] = hrv_metrics['breathingrate'] * 60
+                
+                # Build results dictionary
+                results = {
+                    "heart_rate": hr,
+                    "signal_quality": signal_quality,
+                    "heart_rate_variability": hrv_metrics,
+                    "respiratory_rate": hrv_metrics.get('breathingrate') if hrv_metrics else None,
+                    "latency_ms": latency * 1000 if latency else 0.0,
+                }
+                
+                # Determine warnings
+                warnings = []
+                if signal_quality < 0.3:
+                    warnings.append("Very low signal quality - improve lighting or camera position")
+                elif signal_quality < 0.5:
+                    warnings.append("Low signal quality - results should be interpreted with caution")
+                
+                if hr < 40 or hr > 180:
+                    warnings.append(f"Heart rate {hr:.1f} BPM is outside normal range (40-180)")
+                
+                # Calculate confidence
+                confidence = min(1.0, max(0.0, signal_quality))
+                
+                return PipelineResult(
+                    pipeline_name="rPPG",
+                    timestamp=datetime.now(),
+                    confidence=confidence,
+                    data=results,
+                    warnings=warnings,
+                    errors=[],
+                    metadata={
+                        "model_name": self.model_name,
+                        "camera_index": camera_index,
+                        "duration_seconds": duration,
+                        "capture_mode": "webcam"
+                    }
+                )
+                
+        except Exception as e:
+            return PipelineResult(
+                pipeline_name="rPPG",
+                timestamp=datetime.now(),
+                confidence=0.0,
+                data={},
+                warnings=[],
+                errors=[f"Webcam processing failed: {str(e)}"],
+                metadata={'camera_index': camera_index}
+            )
+    
     def cleanup(self) -> None:
         """Release model resources"""
         if self.model is not None:

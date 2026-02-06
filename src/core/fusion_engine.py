@@ -3,12 +3,22 @@ Fusion Engine - Combines outputs from HeAR, rPPG, and MedGemma VQA
 Generates final triage report with high-confidence medical reasoning
 """
 
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 from dataclasses import dataclass
 from datetime import datetime
 from enum import Enum
+import warnings
 
 from .base_pipeline import PipelineResult
+
+# MedGemma imports
+try:
+    from mlx_lm import load, generate
+    import mlx.core as mx
+    MEDGEMMA_AVAILABLE = True
+except ImportError:
+    MEDGEMMA_AVAILABLE = False
+    warnings.warn("MedGemma (MLX) dependencies not available. Install: pip install mlx mlx-lm")
 
 
 class TriagePriority(Enum):
@@ -63,6 +73,36 @@ class FusionEngine:
             'urgent': 0.65,
             'moderate': 0.40
         }
+        
+        # MedGemma model for clinical interpretation
+        self.medgemma_model = None
+        self.medgemma_tokenizer = None
+        self.use_medgemma = self.config.get('use_medgemma', True) and MEDGEMMA_AVAILABLE
+        
+        if self.use_medgemma:
+            self._initialize_medgemma()
+    
+    def _initialize_medgemma(self):
+        """Initialize MedGemma model for clinical interpretation (MLX optimized)"""
+        try:
+            print("Loading MedGemma model for clinical interpretation (MLX)...")
+            
+            # Use 4-bit quantized model for best M4 performance
+            model_id = "mlx-community/medgemma-4b-it-4bit"
+            
+            self.medgemma_model, self.medgemma_tokenizer = load(model_id)
+            
+            print(f"✓ MedGemma loaded with MLX (M4 optimized)")
+        except Exception as e:
+            error_msg = str(e)
+            if "gated repo" in error_msg or "authenticated" in error_msg:
+                print(f"\n⚠️ MedGemma requires authentication:")
+                print(f"   1. Request access: https://huggingface.co/mlx-community/medgemma-4b-it-4bit")
+                print(f"   2. Get token: https://huggingface.co/settings/tokens")
+                print(f"   3. Login: huggingface-cli login")
+            else:
+                print(f"⚠️ Failed to load MedGemma: {e}")
+            self.use_medgemma = False
     
     def fuse(self, 
              hear_result: PipelineResult = None,
@@ -156,12 +196,24 @@ class FusionEngine:
             vital_signs
         )
         
+        # Generate MedGemma clinical interpretation
+        medgemma_interpretation = self._generate_medgemma_interpretation(
+            vital_signs,
+            acoustic_indicators,
+            visual_indicators,
+            critical_alerts
+        )
+        
         # Create summary
         summary = self._generate_summary(
             priority,
             len(critical_alerts),
             vital_signs
         )
+        
+        # Add MedGemma interpretation to summary if available
+        if medgemma_interpretation:
+            summary = f"{summary}\n\n--- MedGemma Clinical Interpretation ---\n{medgemma_interpretation}"
         
         return TriageReport(
             timestamp=timestamp,
@@ -181,7 +233,8 @@ class FusionEngine:
             metadata={
                 'fusion_engine_version': '0.1.0',
                 'num_pipelines_active': len(confidences),
-                'weights_used': self.weights
+                'weights_used': self.weights,
+                'medgemma_enabled': self.use_medgemma
             }
         )
     
@@ -225,6 +278,125 @@ class FusionEngine:
                 alerts.append("VALIDATED: Respiratory distress confirmed by audio and visual")
         
         return alerts
+    
+    def _generate_medgemma_interpretation(self,
+                                         vital_signs: Dict[str, Any],
+                                         acoustic_indicators: Dict[str, Any],
+                                         visual_indicators: Dict[str, Any],
+                                         critical_alerts: List[str]) -> Optional[str]:
+        """Generate clinical interpretation using MedGemma"""
+        if not self.use_medgemma or not self.medgemma_model:
+            return None
+        
+        try:
+            # Build clinical summary for MedGemma
+            clinical_summary = "Patient Assessment via Remote Vital Signs Monitoring:\n\n"
+            clinical_summary += "**Measurement Method:**\n"
+            clinical_summary += "- Remote photoplethysmography (rPPG) via webcam - non-contact optical measurement\n"
+            clinical_summary += "- Signal quality indicates measurement reliability\n\n"
+            
+            # Vital Signs
+            if vital_signs:
+                clinical_summary += "**Vital Signs:**\n"
+                if 'heart_rate' in vital_signs:
+                    clinical_summary += f"- Heart Rate: {vital_signs['heart_rate']:.1f} BPM\n"
+                if 'respiratory_rate' in vital_signs:
+                    clinical_summary += f"- Respiratory Rate: {vital_signs['respiratory_rate']:.1f} breaths/min\n"
+                if 'spo2' in vital_signs:
+                    clinical_summary += f"- SpO2: {vital_signs['spo2']:.1f}%\n"
+                if 'signal_quality' in vital_signs:
+                    sqi = vital_signs['signal_quality']
+                    sqi_desc = "Excellent" if sqi > 0.8 else "Good" if sqi > 0.6 else "Acceptable" if sqi > 0.5 else "Poor"
+                    clinical_summary += f"- Signal Quality: {sqi:.1%} ({sqi_desc})\n"
+                clinical_summary += "\n"
+            
+            # Acoustic Indicators
+            if acoustic_indicators:
+                clinical_summary += "Acoustic Analysis:\n"
+                for key, value in acoustic_indicators.items():
+                    clinical_summary += f"- {key.replace('_', ' ').title()}: {value}\n"
+                clinical_summary += "\n"
+            
+            # Visual Indicators
+            if visual_indicators:
+                clinical_summary += "Visual Observations:\n"
+                for key, value in visual_indicators.items():
+                    clinical_summary += f"- {key.replace('_', ' ').title()}: {value}\n"
+                clinical_summary += "\n"
+            
+            # Critical Alerts
+            if critical_alerts:
+                clinical_summary += "Critical Alerts:\n"
+                for alert in critical_alerts:
+                    clinical_summary += f"- {alert}\n"
+                clinical_summary += "\n"
+            
+            # Create prompt for MedGemma
+            messages = [
+                {
+                    "role": "system",
+                    "content": (
+                        "You are an expert emergency medicine physician interpreting data from a remote vital signs monitoring system. "
+                        "The measurements are obtained via rPPG (remote photoplethysmography) using a webcam - this is a non-contact, "
+                        "camera-based technology that detects subtle color changes in facial skin to estimate vital signs. "
+                        "Signal quality indicates measurement reliability. "
+                        "\n\nNORMAL RANGES:\n"
+                        "- Signal Quality: >50% is acceptable, >70% is good\n"
+                        "\nProvide concise, accurate clinical interpretation. Do not flag normal values as abnormal."
+                    )
+                },
+                {
+                    "role": "user",
+                    "content": f"{clinical_summary}\n\nProvide:\n1. Clinical interpretation (2-3 sentences)\n2. Triage priority: CRITICAL/URGENT/MODERATE/LOW\n3. Recommendations (if needed)"
+                }
+            ]
+            
+            # Format prompt
+            prompt = self._format_chat_prompt(messages)
+            
+            # Generate interpretation using MLX
+            interpretation = generate(
+                self.medgemma_model,
+                self.medgemma_tokenizer,
+                prompt=prompt,
+                max_tokens=300,
+                verbose=False
+            )
+            
+            # Clean up repetitive assistant tokens
+            interpretation = interpretation.replace('<|assistant|>', '').strip()
+            # Remove duplicate paragraphs
+            lines = interpretation.split('\n')
+            seen = set()
+            unique_lines = []
+            for line in lines:
+                if line.strip() and line.strip() not in seen:
+                    unique_lines.append(line)
+                    seen.add(line.strip())
+                elif not line.strip():  # Keep empty lines for formatting
+                    unique_lines.append(line)
+            interpretation = '\n'.join(unique_lines)
+            
+            return interpretation.strip()
+            
+        except Exception as e:
+            print(f"⚠️ MedGemma interpretation failed: {e}")
+            return None
+    
+    def _format_chat_prompt(self, messages: List[Dict[str, str]]) -> str:
+        """Format messages into a chat prompt for MedGemma"""
+        prompt = ""
+        for msg in messages:
+            role = msg["role"]
+            content = msg["content"]
+            if role == "system":
+                prompt += f"<|system|>\n{content}\n"
+            elif role == "user":
+                prompt += f"<|user|>\n{content}\n"
+            elif role == "assistant":
+                prompt += f"<|assistant|>\n{content}\n"
+        prompt += "<|assistant|>\n"
+        return prompt
     
     def _determine_priority(self,
                           critical_alerts: List[str],
