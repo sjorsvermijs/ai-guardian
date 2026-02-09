@@ -83,12 +83,16 @@ class RPPGPipeline(BasePipeline):
             raise RuntimeError("Pipeline not initialized. Call initialize() first.")
         
         temp_file = None
+        used_tensor = False
         try:
             # Handle different input types
             if isinstance(video_input, (str, Path)):
                 video_path = str(video_input)
+                # Process video file using open-rppg
+                result = self.model.process_video(video_path)
+                
             elif isinstance(video_input, np.ndarray):
-                # Convert numpy array to temporary video file
+                # Process numpy array directly (no video encoding!)
                 if not self.validate_input(video_input):
                     return PipelineResult(
                         pipeline_name="rPPG",
@@ -99,8 +103,12 @@ class RPPGPipeline(BasePipeline):
                         errors=["Invalid video input format"],
                         metadata={}
                     )
-                video_path = self._frames_to_video(video_input)
-                temp_file = video_path
+                
+                print(f"✓ Processing {len(video_input)} frames directly with tensor method (no video conversion)")
+                # Use process_video_tensor to avoid video encoding/decoding
+                result = self.model.process_video_tensor(video_input, fps=self.fps)
+                used_tensor = True
+                
             else:
                 return PipelineResult(
                     pipeline_name="rPPG",
@@ -112,8 +120,20 @@ class RPPGPipeline(BasePipeline):
                     metadata={}
                 )
             
-            # Process video using open-rppg
-            result = self.model.process_video(video_path)
+            # Debug: print raw result
+            print(f"🔍 Raw rPPG result: {result}")
+            
+            # Check if we got valid results
+            if not result or result.get('hr') is None:
+                return PipelineResult(
+                    pipeline_name="rPPG",
+                    timestamp=datetime.now(),
+                    confidence=0.0,
+                    data={},
+                    warnings=["No heart rate detected - ensure face is clearly visible"],
+                    errors=[],
+                    metadata={}
+                )
             
             # Extract results
             hr = float(result.get('hr', 0.0))
@@ -160,10 +180,16 @@ class RPPGPipeline(BasePipeline):
             confidence = min(1.0, max(0.0, signal_quality))
             
             # Get video metadata
-            cap = cv2.VideoCapture(video_path)
-            fps = cap.get(cv2.CAP_PROP_FPS)
-            frame_count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-            cap.release()
+            if used_tensor:
+                # For tensor input, use the input array and configured fps
+                fps = self.fps
+                frame_count = len(video_input)
+            else:
+                # For video file input, read metadata from the file
+                cap = cv2.VideoCapture(video_path)
+                fps = cap.get(cv2.CAP_PROP_FPS)
+                frame_count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+                cap.release()
             
             return PipelineResult(
                 pipeline_name="rPPG",
@@ -226,9 +252,17 @@ class RPPGPipeline(BasePipeline):
         height, width = frames[0].shape[:2]
         fps = self.fps
         
-        # Create video writer
-        fourcc = cv2.VideoWriter_fourcc(*'mp4v')
-        out = cv2.VideoWriter(temp_path, fourcc, fps, (width, height))
+        # Use rawvideo or huffyuv for completely lossless, all-keyframe encoding
+        # AVI format with MJPEG also works (each frame is independent JPEG)
+        fourcc = cv2.VideoWriter_fourcc(*'MJPG')  # Motion JPEG - every frame is a keyframe
+        temp_path_avi = temp_path.replace('.mp4', '.avi')
+        out = cv2.VideoWriter(temp_path_avi, fourcc, fps, (width, height))
+        temp_path = temp_path_avi
+        
+        if not out.isOpened():
+            # Fallback to uncompressed
+            fourcc = 0
+            out = cv2.VideoWriter(temp_path_avi, fourcc, fps, (width, height))
         
         # Write frames
         for frame in frames:
