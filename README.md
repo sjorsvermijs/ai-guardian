@@ -1,275 +1,238 @@
 # AI Guardian
 
-A comprehensive medical triage system that combines three AI pipelines for high-confidence health assessment:
+**Infant Health Monitor** — a multi-modal AI system that analyzes video of infants to assess health status using four parallel pipelines and a clinical reasoning engine.
 
-- **HeAR (Health Acoustic Representations)**: Analyzes audio for respiratory patterns and acoustic health indicators
-- **rPPG (remote photoplethysmography)**: Extracts vital signs from video using subtle skin color changes (supports webcam!)
-- **MedGemma VQA (Visual Question Answering)**: Visually inspects images for critical medical red flags
+Upload a short video of your baby and AI Guardian will extract vital signs from the video, classify audio (cry detection + respiratory sounds), and generate a triage report with messages for both parents and healthcare providers.
 
-By fusing these three modalities, AI Guardian provides medical reasoning that goes far beyond what any single sensor could achieve alone.
+> **Disclaimer**: This is a research prototype and is NOT approved for clinical use. Always consult qualified healthcare professionals for medical decisions.
 
-## ✨ Features
+## How It Works
 
-- **🎥 Webcam Monitoring**: Real-time vital signs from laptop camera (HR, RR, HRV)
-- **📹 Video Analysis**: Process pre-recorded videos for vital sign extraction
-- **🎤 Audio Analysis**: Detect respiratory distress from cough/breathing sounds
-- **👁️ Visual Inspection**: Identify critical medical signs (cyanosis, retractions)
-- **🔗 Multi-Modal Fusion**: High-confidence triage by cross-validating all inputs
-- **🔒 Privacy-First**: All processing happens locally, no cloud uploads
+AI Guardian processes a 10-second video clip through four parallel AI pipelines:
 
-## 🏗️ Project Structure
+| Pipeline | Input | What It Does |
+|----------|-------|-------------|
+| **rPPG** | Video frames (300 @ 30 FPS) | Extracts heart rate, respiratory rate, SpO2, and HRV from subtle skin color changes |
+| **Cry** | Audio (16 kHz mono) | Classifies baby cry type: hungry, discomfort, belly pain, tired, burping, cold |
+| **HeAR** | Audio (16 kHz mono) | Detects respiratory abnormalities using Google's Health Acoustic Representations |
+| **VGA** | 10 screenshots | Visual grading assessment for skin conditions (placeholder — under development) |
+
+Results from all pipelines are fused by a **MedGemma 4B** clinical reasoning engine that generates:
+- A **parent-friendly message** explaining findings in plain language
+- A **clinical note** for healthcare providers with medical terminology
+- A **triage priority** level (Critical / Urgent / Moderate / Low)
+
+All processing runs locally on your machine. No data is sent to the cloud.
+
+## Project Structure
 
 ```
 ai-guardian/
 ├── src/
+│   ├── backend/
+│   │   └── api.py                  # FastAPI server (all endpoints)
+│   ├── frontend/
+│   │   └── src/
+│   │       ├── App.tsx             # React app shell
+│   │       ├── components/
+│   │       │   └── VideoUploadView.tsx   # Main UI: upload, process, results
+│   │       └── utils/
+│   │           └── videoProcessor.ts     # Browser-side frame/audio extraction
+│   ├── core/
+│   │   ├── base_pipeline.py        # Pipeline interface (PipelineResult)
+│   │   ├── config.py               # All pipeline configurations
+│   │   └── fusion_engine.py        # MedGemma-powered clinical reasoning
 │   ├── pipelines/
-│   │   ├── hear/              # HeAR audio analysis pipeline
-│   │   │   ├── __init__.py
-│   │   │   └── pipeline.py
-│   │   ├── rppg/              # rPPG vital signs pipeline
-│   │   │   ├── __init__.py
-│   │   │   └── pipeline.py
-│   │   └── medgemma_vqa/      # MedGemma VQA visual inspection
-│   │       ├── __init__.py
-│   │       └── pipeline.py
-│   ├── core/                  # Core system components
-│   │   ├── __init__.py
-│   │   ├── base_pipeline.py   # Base pipeline interface
-│   │   ├── fusion_engine.py   # Multi-modal fusion logic
-│   │   └── config.py          # Configuration management
-│   └── utils/                 # Utility functions
-│       ├── __init__.py
-│       └── preprocessing.py   # Data preprocessing
-├── tests/                     # Unit and integration tests
-├── configs/                   # Configuration files
-├── data/                      # Sample data (not in repo)
-├── models/                    # Model weights (not in repo)
-├── main.py                    # Main application entry point
-├── requirements.txt           # Python dependencies
-└── README.md                  # This file
+│   │   ├── rppg/pipeline.py        # Contactless vital signs (open-rppg)
+│   │   ├── cry/pipeline.py         # Baby cry classification (AST/HuBERT + SVM)
+│   │   ├── hear/pipeline.py        # Respiratory sound analysis (Google HeAR)
+│   │   └── vga/pipeline.py         # Visual assessment (placeholder stub)
+│   └── utils/
+│       └── preprocessing.py        # Audio/video/image preprocessing helpers
+├── tests/                          # Pytest test suite
+├── data/                           # Datasets (not in repo, see below)
+├── models/                         # Trained classifiers (not in repo, see below)
+├── requirements.txt                # Python dependencies
+└── README.md
 ```
 
-## 🚀 Quick Start
+## Quick Start
 
-### 1. Setup Environment
+### Prerequisites
+
+- **Python 3.10+**
+- **Node.js 18+** (for the frontend)
+- **Apple Silicon Mac** recommended (MedGemma uses MLX for fast local inference)
+- **Hugging Face account** with access to gated models (HeAR, MedGemma)
+
+### 1. Clone and Set Up Python
 
 ```bash
-# Clone the repository
 git clone <repository-url>
 cd ai-guardian
 
-# Create virtual environment
 python -m venv venv
-
-# Activate virtual environment
-source venv/bin/activate  # On macOS/Linux
-# or
-venv\Scripts\activate     # On Windows
-
-# Install dependencies
+source venv/bin/activate
 pip install -r requirements.txt
 ```
 
-### 2. Download Models
+### 2. Configure Hugging Face Access
+
+Several models require Hugging Face authentication:
 
 ```bash
-# TODO: Add instructions for downloading pretrained models
-# - HeAR model weights
-# - rPPG model weights
-# - MedGemma VQA model
+# Install the CLI if needed
+pip install huggingface-hub
+
+# Login with your token
+huggingface-cli login
 ```
 
-### 3. Run Webcam Monitoring (Quick Demo)
+Then request access to these gated models on huggingface.co:
+- [google/hear-pytorch](https://huggingface.co/google/hear-pytorch) — respiratory audio analysis
+- [mlx-community/medgemma-4b-it-4bit](https://huggingface.co/mlx-community/medgemma-4b-it-4bit) — clinical reasoning
+
+### 3. Train Classifiers (First Time Only)
+
+The Cry and HeAR pipelines need trained classifier models. Download datasets and train:
 
 ```bash
-# First, test camera access
-python test_camera.py
+# Cry classifier: download Donate-a-Cry dataset, extract embeddings, train SVM
+python -m src.pipelines.cry.download_donate_a_cry
+python -m src.pipelines.cry.extract_embeddings
+python -m src.pipelines.cry.train_classifier
 
-# Recommended: Simple capture mode (most responsive)
-python webcam_monitor_simple.py
-
-# Alternative: Basic snapshot mode
-python webcam_monitor.py
-
-# Advanced: Live preview mode (less responsive quit)
-python webcam_monitor_live.py
+# HeAR classifier: download SPRSound dataset, extract embeddings, train MLP
+python -m src.pipelines.hear.download_sprsound
+python -m src.pipelines.hear.extract_embeddings
+python -m src.pipelines.hear.train_classifier
 ```
 
-**First time?** See [Webcam Monitoring Guide](docs/WEBCAM_MONITORING.md) for setup tips and troubleshooting.
+Trained models are saved to `models/cry_classifier/` and `models/sprsound_classifier/`.
 
-### 4. Run Full Application
+### 4. Install and Start Frontend
 
 ```bash
-python main.py
+cd src/frontend
+npm install
+npm run dev
 ```
 
-## 📹 Webcam Vital Signs Monitoring
+The frontend runs at `http://localhost:5173`.
 
-AI Guardian can measure your vital signs using just your laptop's webcam:
+### 5. Start Backend
 
-**Measured Metrics:**
+In a separate terminal (with the virtual environment activated):
 
-- ❤️ Heart Rate (BPM)
-- 🫁 Respiratory Rate (breaths/min)
-- 📊 Heart Rate Variability (HRV)
-- 📡 Signal Quality Index (0-100%)
-
-**Quick Start:**
-
-```python
-from src.pipelines.rppg.pipeline import RPPGPipeline
-from src.core.config import config
-
-pipeline = RPPGPipeline(config.rppg_config)
-pipeline.initialize()
-
-# Capture 30 seconds from webcam
-result = pipeline.process_webcam(camera_index=0, duration=30)
-
-print(f"Heart Rate: {result.data['heart_rate']:.1f} BPM")
-print(f"Respiratory Rate: {result.data['respiratory_rate']:.1f} br/min")
-
-pipeline.cleanup()
+```bash
+python -m src.backend.api
 ```
 
-📖 **Full Documentation**: [docs/WEBCAM_MONITORING.md](docs/WEBCAM_MONITORING.md)
+The backend starts at `http://localhost:8000`. On first launch it loads all pipeline models (this takes 30-60 seconds).
 
-## 📋 Pipeline Details
+### 6. Use It
 
-### HeAR Pipeline
+1. Open `http://localhost:5173` in your browser
+2. Upload a video of your baby (MP4, MOV, WebM, or AVI)
+3. Optionally fill in patient info (age in months, sex, any concerns)
+4. Click "Process Video"
+5. Wait for extraction (~10s) and AI processing (~30-60s)
+6. View your triage report with parent message and clinical note
 
-Analyzes audio recordings to detect:
+## API Endpoints
 
-- Respiratory rate and patterns
-- Coughing episodes
-- Breathing abnormalities
-- Acoustic distress signals
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/health` | Health check |
+| `GET` | `/ready` | Pipeline readiness status |
+| `POST` | `/api/process-video` | Process uploaded video (main endpoint) |
+| `POST` | `/api/process-frames` | Process batch of rPPG frames only |
+| `WS` | `/ws/rppg` | Real-time WebSocket for live rPPG |
 
-**Input**: Audio waveform (NumPy array)  
-**Output**: Acoustic health indicators with confidence scores
+### POST /api/process-video
 
-### rPPG Pipeline
-
-Extracts vital signs from video:
-
-- Heart rate (BPM)
-- Oxygen saturation (SpO2)
-- Respiratory rate
-- Heart rate variability
-
-**Input**: Video frames (NumPy array)  
-**Output**: Vital signs measurements with quality metrics
-
-### MedGemma VQA Pipeline
-
-Visual inspection for critical indicators:
-
-- Cyanosis (bluish discoloration)
-- Nasal flaring
-- Chest retractions
-- Respiratory distress signs
-- Skin color abnormalities
-
-**Input**: Image (NumPy array)  
-**Output**: VQA answers with critical flags
-
-## 🔄 Fusion Engine
-
-The Fusion Engine combines results from all three pipelines:
-
-1. **Weighted Aggregation**: Combines confidence scores using configurable weights
-2. **Cross-Validation**: Validates findings across modalities (e.g., cyanosis + low SpO2)
-3. **Priority Assignment**: Determines triage priority (CRITICAL, URGENT, MODERATE, LOW)
-4. **Report Generation**: Creates comprehensive triage report with recommendations
-
-## ⚙️ Configuration
-
-Edit pipeline configurations in [src/core/config.py](src/core/config.py):
-
-```python
-# Example: Adjust fusion weights
-config.fusion_config = {
-    'hear_weight': 0.25,
-    'rppg_weight': 0.35,
-    'vqa_weight': 0.40
+Request body (JSON):
+```json
+{
+  "video_frames": ["base64_frame1", "..."],
+  "audio_data": "base64_wav_16khz_mono",
+  "screenshots": ["base64_img1", "..."],
+  "metadata": { "fps": 30, "duration": 10 },
+  "patient_age": 6,
+  "patient_sex": "Female",
+  "parent_notes": "Coughing since yesterday"
 }
 ```
 
-## 🧪 Development
+The frontend handles all frame/audio extraction automatically.
 
-### Running Tests
+## Pipeline Details
+
+### rPPG (Remote Photoplethysmography)
+
+Uses the [open-rppg](https://github.com/nickklos10/open-rppg) library with the `ME-chunk.rlap` model to extract cardiac signals from facial skin color variations.
+
+**Outputs**: Heart rate (BPM), respiratory rate (breaths/min), SpO2 estimate, HRV metrics (SDNN, RMSSD, LF/HF ratio), signal quality index.
+
+### Cry Classification
+
+Two-stage pipeline: first extracts 768-dimensional embeddings using an [Audio Spectrogram Transformer](https://huggingface.co/MIT/ast-finetuned-audioset-10-10-0.4593) (or HuBERT), then classifies with an SVM trained on the [Donate-a-Cry](https://github.com/gveres/donateacry-corpus) dataset.
+
+**Labels**: belly pain, burping, cold, discomfort, hungry, tired.
+
+### HeAR (Health Acoustic Representations)
+
+Uses [Google's HeAR model](https://huggingface.co/google/hear-pytorch) to extract 512-dimensional health-aware audio embeddings, then classifies with MLP classifiers trained on the [SPRSound](https://github.com/SJTU-YONGFU-RESEARCH-GRP/SPRSound) dataset.
+
+**Outputs**: Binary classification (Normal vs Adventitious), multiclass classification (CAS/DAS/Normal/Poor quality).
+
+### VGA (Visual Grading Assessment)
+
+Placeholder stub. Intended for skin condition analysis from video screenshots. Returns a placeholder result.
+
+### Fusion Engine (MedGemma 4B)
+
+Combines all pipeline outputs with patient context (age, sex, parent observations) and uses [MedGemma 4B](https://huggingface.co/mlx-community/medgemma-4b-it-4bit) (quantized, running locally via MLX) to generate clinical interpretations.
+
+**Triage priority levels**:
+- **CRITICAL** — Immediate medical attention required (call emergency services)
+- **URGENT** — Seek medical attention within 1-2 hours
+- **MODERATE** — Schedule appointment with healthcare provider
+- **LOW** — Continue routine monitoring
+
+## Configuration
+
+All pipeline parameters are in [src/core/config.py](src/core/config.py):
+
+- rPPG: model selection, FPS, filter bandpass, window size
+- HeAR: sample rate, chunk duration, overlap
+- Cry: backend selection (AST vs HuBERT), embedding dimension
+- Fusion: pipeline weights, confidence thresholds, MedGemma toggle
+
+## Development
 
 ```bash
+# Run tests
 pytest tests/
-```
 
-### Code Formatting
-
-```bash
+# Format code
 black src/ tests/
+
+# Lint
 flake8 src/ tests/
+
+# Build frontend for production
+cd src/frontend && npm run build
 ```
 
-## 🎯 Usage Example
+## Tech Stack
 
-```python
-from src.pipelines.hear import HeARPipeline
-from src.pipelines.rppg import RPPGPipeline
-from src.pipelines.medgemma_vqa import MedGemmaVQAPipeline
-from src.core.fusion_engine import FusionEngine
-from src.core.config import config
+**Backend**: Python 3.12, FastAPI, PyTorch, MLX, open-rppg, transformers, scikit-learn
 
-# Initialize pipelines
-hear = HeARPipeline(config.get_pipeline_config('hear'))
-rppg = RPPGPipeline(config.get_pipeline_config('rppg'))
-vqa = MedGemmaVQAPipeline(config.get_pipeline_config('vqa'))
+**Frontend**: React 19, TypeScript, Vite
 
-hear.initialize()
-rppg.initialize()
-vqa.initialize()
+**Models**: MedGemma 4B (MLX), Google HeAR, Audio Spectrogram Transformer, open-rppg ME-chunk
 
-# Process data
-hear_result = hear.process(audio_data)
-rppg_result = rppg.process(video_frames)
-vqa_result = vqa.process(image)
-
-# Fuse results
-fusion = FusionEngine(config.get_fusion_config())
-triage_report = fusion.fuse(hear_result, rppg_result, vqa_result)
-
-print(f"Priority: {triage_report.priority.value}")
-print(f"Confidence: {triage_report.confidence:.2%}")
-```
-
-## 📊 Triage Priority Levels
-
-- **CRITICAL**: Immediate medical intervention required (call 911)
-- **URGENT**: Needs prompt attention within 1-2 hours
-- **MODERATE**: Schedule appointment with healthcare provider
-- **LOW**: Continue routine monitoring
-
-## 🔐 Privacy & Security
-
-This system processes sensitive medical data. Ensure:
-
-- All data is handled in compliance with HIPAA/local regulations
-- Models are run locally or in secure environments
-- Patient data is encrypted at rest and in transit
-- Proper consent is obtained before processing
-
-## ⚠️ Disclaimer
-
-**This is a research prototype and NOT approved for clinical use.**  
-Always consult qualified healthcare professionals for medical decisions.
-
-## 📝 License
+## License
 
 [Add your license here]
-
-## 🤝 Contributing
-
-[Add contribution guidelines here]
-
-## 📧 Contact
-
-[Add contact information here]
