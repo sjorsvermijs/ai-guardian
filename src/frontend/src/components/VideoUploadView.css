@@ -436,6 +436,287 @@
   background: rgba(33, 150, 243, 0.3);
 }
 
+/* Patient Information Section */
+.patient-info-section {
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 12px;
+  padding: 20px;
+  margin-bottom: 20px;
+}
+
+.patient-info-section h4 {
+  margin: 0 0 6px 0;
+  font-size: 18px;
+  color: #fff;
+}
+
+.info-subtitle {
+  margin: 0 0 16px 0;
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.6);
+}
+
+.patient-inputs {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+.input-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.input-group label {
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.8);
+  font-weight: 500;
+}
+
+.patient-input {
+  background: rgba(0, 0, 0, 0.3);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 8px;
+  padding: 10px 12px;
+  color: #fff;
+  font-size: 14px;
+  font-family: inherit;
+  transition: all 0.2s ease;
+}
+
+.patient-input:focus {
+  outline: none;
+  border-color: rgba(59, 130, 246, 0.5);
+  background: rgba(0, 0, 0, 0.4);
+}
+
+.patient-input::placeholder {
+  color: rgba(255, 255, 255, 0.4);
+}
+
+.notes-input {
+  resize: vertical;
+  min-height: 60px;
+}
+
+/* Triage Report Styles */
+.triage-report-main {
+  background: linear-gradient(135deg, rgba(59, 130, 246, 0.15), rgba(139, 92, 246, 0.15));
+  border: 2px solid rgba(59, 130, 246, 0.3);
+  border-radius: 16px;
+  padding: 24px;
+  margin-bottom: 24px;
+}
+
+.triage-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 20px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.triage-header h2 {
+  margin: 0;
+  font-size: 24px;
+  color: #fff;
+}
+
+.priority-badge {
+  padding: 8px 16px;
+  border-radius: 20px;
+  font-weight: 600;
+  font-size: 14px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.priority-critical {
+  background: rgba(239, 68, 68, 0.2);
+  color: #ef4444;
+  border: 1px solid #ef4444;
+}
+
+.priority-urgent {
+  background: rgba(249, 115, 22, 0.2);
+  color: #f97316;
+  border: 1px solid #f97316;
+}
+
+.priority-moderate {
+  background: rgba(234, 179, 8, 0.2);
+  color: #eab308;
+  border: 1px solid #eab308;
+}
+
+.priority-low {
+  background: rgba(34, 197, 94, 0.2);
+  color: #22c55e;
+  border: 1px solid #22c55e;
+}
+
+.critical-alerts {
+  background: rgba(239, 68, 68, 0.1);
+  border-left: 4px solid #ef4444;
+  border-radius: 8px;
+  padding: 16px;
+  margin-bottom: 16px;
+}
+
+.critical-alerts h3 {
+  margin: 0 0 12px 0;
+  font-size: 16px;
+  color: #ef4444;
+}
+
+.critical-alerts ul {
+  margin: 0;
+  padding-left: 20px;
+}
+
+.critical-alerts li {
+  color: rgba(255, 255, 255, 0.9);
+  margin-bottom: 8px;
+  line-height: 1.5;
+}
+
+.recommendations {
+  background: rgba(59, 130, 246, 0.1);
+  border-left: 4px solid #3b82f6;
+  border-radius: 8px;
+  padding: 16px;
+  margin-bottom: 16px;
+}
+
+.recommendations h3 {
+  margin: 0 0 12px 0;
+  font-size: 16px;
+  color: #3b82f6;
+}
+
+.recommendations ul {
+  margin: 0;
+  padding-left: 20px;
+}
+
+.recommendations li {
+  color: rgba(255, 255, 255, 0.9);
+  margin-bottom: 8px;
+  line-height: 1.5;
+}
+
+/* Parent Message */
+.parent-message {
+  background: rgba(34, 197, 94, 0.1);
+  border-left: 4px solid #22c55e;
+  border-radius: 8px;
+  padding: 16px;
+  margin-bottom: 16px;
+}
+
+.parent-message h3 {
+  margin: 0 0 12px 0;
+  font-size: 16px;
+  color: #22c55e;
+}
+
+.message-text p {
+  color: rgba(255, 255, 255, 0.9);
+  line-height: 1.6;
+  margin: 8px 0;
+  font-size: 15px;
+}
+
+/* Specialist Note (Collapsible) */
+.specialist-details {
+  background: rgba(100, 116, 139, 0.1);
+  border: 1px solid rgba(100, 116, 139, 0.3);
+  border-radius: 8px;
+  margin-bottom: 16px;
+  overflow: hidden;
+}
+
+.specialist-summary {
+  padding: 12px 16px;
+  cursor: pointer;
+  user-select: none;
+  font-size: 14px;
+  font-weight: 600;
+  color: rgba(148, 163, 184, 0.9);
+  list-style: none;
+  transition: background 0.2s ease;
+}
+
+.specialist-summary::-webkit-details-marker {
+  display: none;
+}
+
+.specialist-summary:hover {
+  background: rgba(100, 116, 139, 0.15);
+}
+
+.specialist-message {
+  padding: 0 16px 16px;
+  border-top: 1px solid rgba(100, 116, 139, 0.2);
+}
+
+.specialist-message p {
+  color: rgba(203, 213, 225, 0.85);
+  line-height: 1.5;
+  margin: 8px 0;
+  font-size: 13px;
+  font-family: 'SF Mono', 'Fira Code', monospace;
+}
+
+.confidence-info {
+  text-align: center;
+  padding-top: 12px;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+  color: rgba(255, 255, 255, 0.6);
+  font-size: 13px;
+}
+
+/* Pipeline Details (Expandable) */
+.pipeline-details {
+  margin-top: 24px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+.details-summary {
+  padding: 16px 20px;
+  cursor: pointer;
+  user-select: none;
+  list-style: none;
+  background: rgba(255, 255, 255, 0.05);
+  transition: background 0.2s ease;
+}
+
+.details-summary::-webkit-details-marker {
+  display: none;
+}
+
+.details-summary:hover {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.details-summary h3 {
+  margin: 0;
+  font-size: 16px;
+  color: rgba(255, 255, 255, 0.8);
+}
+
+.pipeline-details[open] .details-summary {
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  margin-bottom: 16px;
+}
+
 /* Responsive Design */
 @media (max-width: 768px) {
   .video-upload-view {
@@ -481,5 +762,23 @@
 
   .results-header h2 {
     font-size: 22px;
+  }
+
+  .patient-inputs {
+    grid-template-columns: 1fr;
+  }
+
+  .triage-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 12px;
+  }
+
+  .triage-header h2 {
+    font-size: 20px;
+  }
+
+  .triage-report-main {
+    padding: 16px;
   }
 }

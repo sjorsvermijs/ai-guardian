@@ -228,6 +228,11 @@ models/
 # Logs
 logs/
 
+# Frontend
+node_modules/
+src/frontend/node_modules/
+src/frontend/dist/
+
 # OS specific
 .DS_Store
 Thumbs.db

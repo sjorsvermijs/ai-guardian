@@ -8,8 +8,8 @@ function App() {
   return (
     <div className="app">
       <header className="app-header">
-        <h1>🩺 AI Guardian</h1>
-        <p className="app-subtitle">Multi-modal health analysis</p>
+        <h1>AI Guardian</h1>
+        <p className="app-subtitle">Infant Health Monitor</p>
       </header>
 
       <main className="app-main">
@@ -21,6 +21,10 @@ function App() {
           <p className="error-status">Error: {uploadError}</p>
         </div>
       )}
+
+      <footer className="app-disclaimer">
+        <p>This tool is for informational purposes only and does not replace professional medical advice.</p>
+      </footer>
     </div>
   );
 }

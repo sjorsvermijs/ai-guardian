@@ -35,7 +35,7 @@ app = FastAPI(title="AI Guardian API", version="1.0.0")
 # CORS middleware for React frontend
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://localhost:3000"],
+    allow_origins=["http://localhost:5173", "http://localhost:5174", "http://localhost:3000"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -542,7 +542,7 @@ async def process_video_endpoint(request: VideoProcessRequest):
                     patient_sex=request.patient_sex,
                     parent_notes=request.parent_notes
                 )
-                print(f"✓ Triage report generated: {triage_report.priority_level}")
+                print(f"✓ Triage report generated: {triage_report.priority.value}")
             except Exception as e:
                 print(f"⚠️ FusionEngine error: {e}")
                 import traceback
@@ -563,11 +563,12 @@ async def process_video_endpoint(request: VideoProcessRequest):
         # Add triage report if available
         if triage_report:
             response["triage"] = {
-                "priority_level": triage_report.priority_level,
+                "priority_level": triage_report.priority.value,
                 "critical_alerts": triage_report.critical_alerts,
                 "recommendations": triage_report.recommendations,
-                "medical_interpretation": triage_report.medical_interpretation,
-                "confidence_score": triage_report.confidence_score,
+                "parent_message": triage_report.parent_message,
+                "specialist_message": triage_report.specialist_message,
+                "confidence_score": triage_report.confidence,
                 "timestamp": triage_report.timestamp.isoformat()
             }
 

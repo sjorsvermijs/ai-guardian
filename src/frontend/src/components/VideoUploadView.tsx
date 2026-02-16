@@ -48,7 +48,8 @@ interface TriageReport {
   priority_level: string;
   critical_alerts: string[];
   recommendations: string[];
-  medical_interpretation: string;
+  parent_message: string;
+  specialist_message: string;
   confidence_score: number;
   timestamp: string;
 }
@@ -352,7 +353,7 @@ export function VideoUploadView({ onError }: VideoUploadViewProps) {
             {results.triage && (
               <div className="triage-report-main">
                 <div className="triage-header">
-                  <h2>🩺 AI Medical Assessment</h2>
+                  <h2>AI Medical Assessment</h2>
                   <span className={`priority-badge priority-${results.triage.priority_level.toLowerCase()}`}>
                     {results.triage.priority_level}
                   </span>
@@ -360,7 +361,7 @@ export function VideoUploadView({ onError }: VideoUploadViewProps) {
 
                 {results.triage.critical_alerts && results.triage.critical_alerts.length > 0 && (
                   <div className="critical-alerts">
-                    <h3>⚠️ Important Alerts</h3>
+                    <h3>Important Alerts</h3>
                     <ul>
                       {results.triage.critical_alerts.map((alert, index) => (
                         <li key={index}>{alert}</li>
@@ -369,9 +370,21 @@ export function VideoUploadView({ onError }: VideoUploadViewProps) {
                   </div>
                 )}
 
+                {/* Parent-friendly message */}
+                {results.triage.parent_message && (
+                  <div className="parent-message">
+                    <h3>For Parents</h3>
+                    <div className="message-text">
+                      {results.triage.parent_message.split('\n').map((line, index) => (
+                        line.trim() ? <p key={index}>{line}</p> : null
+                      ))}
+                    </div>
+                  </div>
+                )}
+
                 {results.triage.recommendations && results.triage.recommendations.length > 0 && (
                   <div className="recommendations">
-                    <h3>📋 Recommendations</h3>
+                    <h3>Next Steps</h3>
                     <ul>
                       {results.triage.recommendations.map((rec, index) => (
                         <li key={index}>{rec}</li>
@@ -380,19 +393,22 @@ export function VideoUploadView({ onError }: VideoUploadViewProps) {
                   </div>
                 )}
 
-                {results.triage.medical_interpretation && (
-                  <div className="medical-interpretation">
-                    <h3>🧠 Medical Reasoning</h3>
-                    <div className="interpretation-text">
-                      {results.triage.medical_interpretation.split('\n').map((line, index) => (
-                        <p key={index}>{line}</p>
+                {/* Specialist clinical note */}
+                {results.triage.specialist_message && (
+                  <details className="specialist-details">
+                    <summary className="specialist-summary">
+                      Clinical Note (For Healthcare Providers)
+                    </summary>
+                    <div className="specialist-message">
+                      {results.triage.specialist_message.split('\n').map((line, index) => (
+                        line.trim() ? <p key={index}>{line}</p> : null
                       ))}
                     </div>
-                  </div>
+                  </details>
                 )}
 
                 <div className="confidence-info">
-                  <span>Confidence: {(results.triage.confidence_score * 100).toFixed(0)}%</span>
+                  <span>AI Confidence: {(results.triage.confidence_score * 100).toFixed(0)}%</span>
                 </div>
               </div>
             )}

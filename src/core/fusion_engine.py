@@ -36,6 +36,8 @@ class TriageReport:
     priority: TriagePriority
     confidence: float
     summary: str
+    parent_message: str          # Parent-friendly explanation
+    specialist_message: str      # Clinical summary for medical professionals
     vital_signs: Dict[str, Any]
     acoustic_indicators: Dict[str, Any]
     visual_indicators: Dict[str, Any]
@@ -54,33 +56,37 @@ class FusionEngine:
     def __init__(self, config: Dict[str, Any] = None):
         """
         Initialize fusion engine
-        
+
         Args:
             config: Configuration including weights and thresholds
         """
         self.config = config or {}
-        
+        self.is_initialized = False
+
         # Pipeline weights for final decision
         self.weights = {
             'hear': self.config.get('hear_weight', 0.25),
             'rppg': self.config.get('rppg_weight', 0.35),
             'medgemma_vqa': self.config.get('vqa_weight', 0.40)
         }
-        
+
         # Thresholds for triage priority
         self.thresholds = {
             'critical': 0.85,
             'urgent': 0.65,
             'moderate': 0.40
         }
-        
+
         # MedGemma model for clinical interpretation
         self.medgemma_model = None
         self.medgemma_tokenizer = None
         self.use_medgemma = self.config.get('use_medgemma', True) and MEDGEMMA_AVAILABLE
-        
+
+    def initialize(self):
+        """Initialize the fusion engine and load MedGemma model"""
         if self.use_medgemma:
             self._initialize_medgemma()
+        self.is_initialized = True
     
     def _initialize_medgemma(self):
         """Initialize MedGemma model for clinical interpretation (MLX optimized)"""
@@ -149,11 +155,11 @@ class FusionEngine:
             vital_signs = rppg_result.data.copy()
             
             # Check for abnormal vital signs
-            hr = vital_signs.get('heart_rate', 0)
+            hr = vital_signs.get('heart_rate') or 0
             rr = vital_signs.get('respiratory_rate')
-            spo2 = vital_signs.get('spo2', 100)
-            
-            if hr > 120 or hr < 50:
+            spo2 = vital_signs.get('spo2') or 100
+
+            if hr and (hr > 120 or hr < 50):
                 critical_alerts.append(f"Abnormal heart rate: {hr:.1f} BPM")
             
             # Respiratory rate assessment (if available from HRV)
@@ -216,33 +222,31 @@ class FusionEngine:
             vital_signs
         )
         
-        # Generate MedGemma clinical interpretation with patient context
-        medgemma_interpretation = self._generate_medgemma_interpretation(
-            vital_signs,
-            acoustic_indicators,
-            visual_indicators,
-            critical_alerts,
-            patient_age,
-            patient_sex,
-            parent_notes
+        # Build clinical data summary for MedGemma
+        clinical_data = self._build_clinical_data(
+            vital_signs, acoustic_indicators, visual_indicators,
+            critical_alerts, patient_age, patient_sex, parent_notes
         )
-        
+
+        # Generate both messages in a single LLM call for speed
+        parent_message, specialist_message = self._generate_triage_messages(
+            clinical_data, priority, recommendations
+        )
+
         # Create summary
         summary = self._generate_summary(
             priority,
             len(critical_alerts),
             vital_signs
         )
-        
-        # Add MedGemma interpretation to summary if available
-        if medgemma_interpretation:
-            summary = f"{summary}\n\n--- MedGemma Clinical Interpretation ---\n{medgemma_interpretation}"
-        
+
         return TriageReport(
             timestamp=timestamp,
             priority=priority,
             confidence=overall_confidence,
             summary=summary,
+            parent_message=parent_message,
+            specialist_message=specialist_message,
             vital_signs=vital_signs,
             acoustic_indicators=acoustic_indicators,
             visual_indicators=visual_indicators,
@@ -303,145 +307,221 @@ class FusionEngine:
         
         return alerts
     
-    def _generate_medgemma_interpretation(self,
-                                         vital_signs: Dict[str, Any],
-                                         acoustic_indicators: Dict[str, Any],
-                                         visual_indicators: Dict[str, Any],
-                                         critical_alerts: List[str],
-                                         patient_age: int = None,
-                                         patient_sex: str = None,
-                                         parent_notes: str = None) -> Optional[str]:
-        """Generate clinical interpretation using MedGemma"""
-        if not self.use_medgemma or not self.medgemma_model:
-            return None
-        
-        try:
-            # Build clinical summary for MedGemma
-            clinical_summary = "INFANT HEALTH ASSESSMENT - Multi-Modal Analysis:\n\n"
+    def _build_clinical_data(self,
+                            vital_signs: Dict[str, Any],
+                            acoustic_indicators: Dict[str, Any],
+                            visual_indicators: Dict[str, Any],
+                            critical_alerts: List[str],
+                            patient_age: int = None,
+                            patient_sex: str = None,
+                            parent_notes: str = None) -> str:
+        """Build clinical data summary string used by both message generators"""
+        clinical_summary = "INFANT HEALTH ASSESSMENT - Multi-Modal Analysis:\n\n"
 
-            # Patient Context
-            clinical_summary += "**Patient Information:**\n"
-            if patient_age is not None:
-                age_str = f"{patient_age} months old" if patient_age < 24 else f"{patient_age//12} years old"
-                clinical_summary += f"- Age: {age_str}\n"
-            if patient_sex:
-                clinical_summary += f"- Sex: {patient_sex}\n"
-            if parent_notes:
-                clinical_summary += f"- Parent Observations: {parent_notes}\n"
+        # Patient Context
+        clinical_summary += "Patient Information:\n"
+        if patient_age is not None:
+            age_str = f"{patient_age} months old" if patient_age < 24 else f"{patient_age//12} years old"
+            clinical_summary += f"- Age: {age_str}\n"
+        if patient_sex:
+            clinical_summary += f"- Sex: {patient_sex}\n"
+        if parent_notes:
+            clinical_summary += f"- Parent Observations: {parent_notes}\n"
+        clinical_summary += "\n"
+
+        # Vital Signs
+        if vital_signs:
+            clinical_summary += "Vital Signs (via rPPG - contactless video-based):\n"
+            hr = vital_signs.get('heart_rate')
+            if hr is not None:
+                clinical_summary += f"- Heart Rate: {hr:.1f} BPM\n"
+            rr = vital_signs.get('respiratory_rate')
+            if rr is not None:
+                clinical_summary += f"- Respiratory Rate: {rr:.1f} breaths/min\n"
+            spo2 = vital_signs.get('spo2')
+            if spo2 is not None:
+                clinical_summary += f"- SpO2: {spo2:.1f}%\n"
+            sqi = vital_signs.get('signal_quality')
+            if sqi is not None:
+                sqi_desc = "Excellent" if sqi > 0.8 else "Good" if sqi > 0.6 else "Acceptable" if sqi > 0.5 else "Poor"
+                clinical_summary += f"- Signal Quality: {sqi:.1%} ({sqi_desc})\n"
             clinical_summary += "\n"
 
-            clinical_summary += "**Measurement Method:**\n"
-            clinical_summary += "- Video-based vital signs (rPPG)\n"
-            clinical_summary += "- Audio analysis (cry patterns, respiratory sounds)\n"
-            clinical_summary += "- Visual assessment\n\n"
-            
-            # Vital Signs
-            if vital_signs:
-                clinical_summary += "**Vital Signs:**\n"
-                if 'heart_rate' in vital_signs:
-                    clinical_summary += f"- Heart Rate: {vital_signs['heart_rate']:.1f} BPM\n"
-                if 'respiratory_rate' in vital_signs:
-                    clinical_summary += f"- Respiratory Rate: {vital_signs['respiratory_rate']:.1f} breaths/min\n"
-                if 'spo2' in vital_signs:
-                    clinical_summary += f"- SpO2: {vital_signs['spo2']:.1f}%\n"
-                if 'signal_quality' in vital_signs:
-                    sqi = vital_signs['signal_quality']
-                    sqi_desc = "Excellent" if sqi > 0.8 else "Good" if sqi > 0.6 else "Acceptable" if sqi > 0.5 else "Poor"
-                    clinical_summary += f"- Signal Quality: {sqi:.1%} ({sqi_desc})\n"
-                clinical_summary += "\n"
-            
-            # Acoustic Indicators (HeAR + Cry)
-            if acoustic_indicators:
-                clinical_summary += "**Acoustic Analysis:**\n"
+        # Acoustic Indicators (HeAR + Cry)
+        if acoustic_indicators:
+            clinical_summary += "Acoustic Analysis:\n"
+            if 'cry' in acoustic_indicators:
+                cry_data = acoustic_indicators['cry']
+                if 'prediction' in cry_data:
+                    confidence = cry_data.get('confidence', 0) * 100
+                    clinical_summary += f"- Cry Classification: {cry_data['prediction']} ({confidence:.0f}% confidence)\n"
+                    probs = cry_data.get('probabilities', {})
+                    if probs:
+                        top_3 = sorted(probs.items(), key=lambda x: x[1], reverse=True)[:3]
+                        clinical_summary += f"  Top predictions: {', '.join(f'{k}={v*100:.0f}%' for k,v in top_3)}\n"
 
-                # Cry Analysis
-                if 'cry' in acoustic_indicators:
-                    cry_data = acoustic_indicators['cry']
-                    if 'prediction' in cry_data:
-                        confidence = cry_data.get('confidence', 0) * 100
-                        clinical_summary += f"- Cry Type: {cry_data['prediction']} ({confidence:.0f}% confidence)\n"
+            if 'hear' in acoustic_indicators:
+                hear_data = acoustic_indicators['hear']
+                if 'binary_classification' in hear_data:
+                    bc = hear_data['binary_classification']
+                    clinical_summary += f"- Respiratory Sounds: {bc['prediction']} ({bc['confidence']*100:.0f}% confidence)\n"
+                if 'multiclass_classification' in hear_data:
+                    mc = hear_data['multiclass_classification']
+                    clinical_summary += f"- Sound Classification: {mc['prediction']} ({mc['confidence']*100:.0f}% confidence)\n"
+            clinical_summary += "\n"
 
-                # HeAR Respiratory Analysis
-                if 'hear' in acoustic_indicators:
-                    hear_data = acoustic_indicators['hear']
-                    if 'binary_classification' in hear_data:
-                        assessment = hear_data['binary_classification']['prediction']
-                        confidence = hear_data['binary_classification']['confidence'] * 100
-                        clinical_summary += f"- Respiratory Sounds: {assessment} ({confidence:.0f}% confidence)\n"
-                    if 'multiclass_classification' in hear_data:
-                        sound_type = hear_data['multiclass_classification']['prediction']
-                        clinical_summary += f"- Sound Type: {sound_type}\n"
-
-                clinical_summary += "\n"
-            
-            # Visual Indicators
-            if visual_indicators:
-                clinical_summary += "Visual Observations:\n"
-                for key, value in visual_indicators.items():
+        # Visual Indicators
+        if visual_indicators:
+            clinical_summary += "Visual Assessment:\n"
+            for key, value in visual_indicators.items():
+                if key not in ('status', 'message'):
                     clinical_summary += f"- {key.replace('_', ' ').title()}: {value}\n"
-                clinical_summary += "\n"
-            
-            # Critical Alerts
-            if critical_alerts:
-                clinical_summary += "Critical Alerts:\n"
-                for alert in critical_alerts:
-                    clinical_summary += f"- {alert}\n"
-                clinical_summary += "\n"
-            
-            # Create prompt for MedGemma
+            clinical_summary += "\n"
+
+        # Critical Alerts
+        if critical_alerts:
+            clinical_summary += "Flagged Alerts:\n"
+            for alert in critical_alerts:
+                clinical_summary += f"- {alert}\n"
+            clinical_summary += "\n"
+
+        return clinical_summary
+
+    def _generate_triage_messages(self,
+                                  clinical_data: str,
+                                  priority: TriagePriority,
+                                  recommendations: List[str]) -> tuple:
+        """Generate both parent and specialist messages in a single LLM call"""
+        if not self.use_medgemma or not self.medgemma_model:
+            return ("", "")
+
+        try:
             messages = [
                 {
                     "role": "system",
                     "content": (
-                        "You are a pediatric emergency medicine physician reviewing an AI-assisted infant health assessment. "
-                        "The system combines:\n"
-                        "1. Video-based vital signs (rPPG)\n"
-                        "2. Cry pattern analysis (hungry, discomfort, pain, etc.)\n"
-                        "3. Respiratory sound analysis (normal, adventitious sounds, crackles, wheezes)\n"
-                        "4. Visual assessment (skin color, breathing patterns)\n"
-                        "\nINFANT NORMAL RANGES:\n"
+                        "You are a pediatric medicine AI assistant. You will write TWO separate messages "
+                        "based on the same clinical data. Follow the exact format below.\n\n"
+                        "INFANT NORMAL RANGES:\n"
                         "- Heart Rate: 100-160 BPM (newborns), 90-150 BPM (infants)\n"
-                        "- Respiratory Rate: 30-60 breaths/min (newborns), 25-40 (infants)\n"
-                        "\nProvide parent-friendly, actionable guidance. Be reassuring when appropriate but clear about concerning findings."
+                        "- Respiratory Rate: 30-60 breaths/min (newborns), 25-40 (infants)"
                     )
                 },
                 {
                     "role": "user",
-                    "content": f"{clinical_summary}\n\nProvide a concise parent-friendly assessment:\n1. **Overall Status:** (2-3 sentences summarizing baby's condition)\n2. **Priority Level:** CRITICAL/URGENT/MODERATE/LOW\n3. **Recommended Actions:** (Clear, actionable steps for parents)"
+                    "content": (
+                        f"{clinical_data}\n"
+                        f"Triage priority: {priority.value}\n"
+                        f"Recommendations: {'; '.join(recommendations)}\n\n"
+                        "Write exactly TWO sections separated by '---SEPARATOR---'.\n\n"
+                        "CRITICAL RULES:\n"
+                        "- Do NOT use placeholders like [baby's name], [child], or [name]. "
+                        "Refer to the baby as 'your baby' or 'the infant'.\n"
+                        "- Do NOT generate any code, functions, or programming syntax.\n"
+                        "- Write ONLY natural language text.\n\n"
+                        "SECTION 1 - FOR PARENTS:\n"
+                        "Write a short, warm message (max 100 words) in simple language. "
+                        "Explain what was found, whether to worry, and what to do next. "
+                        "No headers, no bullet points, just natural paragraphs.\n\n"
+                        "---SEPARATOR---\n\n"
+                        "SECTION 2 - CLINICAL NOTE:\n"
+                        "Write a brief clinical assessment (max 150 words) using medical terminology. "
+                        "Include: findings summary, clinical significance with pediatric normal ranges, "
+                        "differential considerations, and recommended follow-up. "
+                        "Do NOT use markdown formatting like ** or #."
+                    )
                 }
             ]
-            
-            # Format prompt
+
             prompt = self._format_chat_prompt(messages)
-            
-            # Generate interpretation using MLX
-            interpretation = generate(
+            result = generate(
                 self.medgemma_model,
                 self.medgemma_tokenizer,
                 prompt=prompt,
-                max_tokens=300,
+                max_tokens=450,
                 verbose=False
             )
-            
-            # Clean up repetitive assistant tokens
-            interpretation = interpretation.replace('<|assistant|>', '').strip()
-            # Remove duplicate paragraphs
-            lines = interpretation.split('\n')
-            seen = set()
-            unique_lines = []
-            for line in lines:
-                if line.strip() and line.strip() not in seen:
-                    unique_lines.append(line)
-                    seen.add(line.strip())
-                elif not line.strip():  # Keep empty lines for formatting
-                    unique_lines.append(line)
-            interpretation = '\n'.join(unique_lines)
-            
-            return interpretation.strip()
-            
+            result = self._clean_llm_output(result)
+
+            # Split into two messages
+            if '---SEPARATOR---' in result:
+                parts = result.split('---SEPARATOR---', 1)
+                parent_msg = parts[0].strip()
+                specialist_msg = parts[1].strip()
+            else:
+                # Fallback: use entire output as parent message
+                parent_msg = result
+                specialist_msg = ""
+
+            # Clean up section headers if the model included them
+            for prefix in ['SECTION 1 - FOR PARENTS:', 'SECTION 1:', 'FOR PARENTS:']:
+                if parent_msg.upper().startswith(prefix.upper()):
+                    parent_msg = parent_msg[len(prefix):].strip()
+            for prefix in ['SECTION 2 - CLINICAL NOTE:', 'SECTION 2:', 'CLINICAL NOTE:']:
+                if specialist_msg.upper().startswith(prefix.upper()):
+                    specialist_msg = specialist_msg[len(prefix):].strip()
+
+            return (parent_msg, specialist_msg)
+
         except Exception as e:
-            print(f"⚠️ MedGemma interpretation failed: {e}")
-            return None
+            print(f"⚠️ Triage message generation failed: {e}")
+            import traceback
+            traceback.print_exc()
+            return ("", "")
+
+    def _clean_llm_output(self, text: str) -> str:
+        """Clean up LLM output by removing artifacts, code blocks, and deduplicating"""
+        import re
+
+        # Remove special tokens
+        for token in ['<|assistant|>', '<|end|>', '<|sample_code>', '<|sample_code|>',
+                      '<|code|>', '<|endoftext|>', '<|im_end|>']:
+            text = text.replace(token, '')
+
+        # Remove code blocks (```...```)
+        text = re.sub(r'```[\s\S]*?```', '', text)
+
+        # Remove lines that look like code (def, import, class, return, etc.)
+        lines = text.split('\n')
+        cleaned_lines = []
+        skip_code = False
+        for line in lines:
+            stripped = line.strip()
+            # Skip lines that are clearly code
+            if re.match(r'^(def |class |import |from |return |if __name__|    def |    return |print\(|>>>)', stripped):
+                skip_code = True
+                continue
+            # If we were skipping code and hit an empty line or non-indented text, stop skipping
+            if skip_code and (not stripped or (stripped and not stripped.startswith('    '))):
+                skip_code = False
+            if skip_code:
+                continue
+            cleaned_lines.append(line)
+
+        # Remove duplicate lines
+        seen = set()
+        unique_lines = []
+        for line in cleaned_lines:
+            stripped = line.strip()
+            if stripped and stripped not in seen:
+                unique_lines.append(line)
+                seen.add(stripped)
+            elif not stripped:
+                unique_lines.append(line)
+
+        text = '\n'.join(unique_lines).strip()
+
+        # Remove placeholder names like [baby's name], [child's name], etc.
+        text = re.sub(r"\[baby.?s?\s*name\]", "your baby", text, flags=re.IGNORECASE)
+        text = re.sub(r"\[child.?s?\s*name\]", "your baby", text, flags=re.IGNORECASE)
+        text = re.sub(r"\[infant.?s?\s*name\]", "your baby", text, flags=re.IGNORECASE)
+        text = re.sub(r"\[name\]", "your baby", text, flags=re.IGNORECASE)
+
+        # Strip markdown bold/italic formatting
+        text = re.sub(r'\*\*(.+?)\*\*', r'\1', text)
+        text = re.sub(r'\*(.+?)\*', r'\1', text)
+
+        return text
     
     def _format_chat_prompt(self, messages: List[Dict[str, str]]) -> str:
         """Format messages into a chat prompt for MedGemma"""
@@ -470,11 +550,11 @@ class FusionEngine:
                for alert in critical_alerts):
             return TriagePriority.CRITICAL
         
-        # Check vital signs
-        spo2 = vital_signs.get('spo2', 100)
-        hr = vital_signs.get('heart_rate', 70)
-        rr = vital_signs.get('respiratory_rate', 15)
-        
+        # Check vital signs (use 'or' fallback since values may be explicitly None)
+        spo2 = vital_signs.get('spo2') or 100
+        hr = vital_signs.get('heart_rate') or 70
+        rr = vital_signs.get('respiratory_rate') or 15
+
         if spo2 < 88 or hr > 140 or hr < 40 or rr > 35:
             return TriagePriority.CRITICAL
         
