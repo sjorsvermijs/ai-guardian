@@ -7,7 +7,7 @@
  * - Screenshots (10 evenly distributed) for VGA pipeline
  */
 
-const TARGET_FPS = 15;
+const TARGET_FPS = 30;
 const TARGET_DURATION = 10; // seconds
 const SCREENSHOT_COUNT = 10;
 const AUDIO_SAMPLE_RATE = 16000;

@@ -252,18 +252,18 @@ export function VideoUploadView({ onError }: VideoUploadViewProps) {
             {!isExtracting && !isUploading && (
               <div className="action-section">
                 <div className="patient-info-section">
-                  <h4>Patient Information (Optional)</h4>
+                  <h4>Patient Information (Recommended)</h4>
                   <p className="info-subtitle">Help our AI provide better guidance</p>
 
                   <div className="patient-inputs">
                     <div className="input-group">
-                      <label htmlFor="patient-age">Age (months or years)</label>
+                      <label htmlFor="patient-age">Age in months</label>
                       <input
                         id="patient-age"
                         type="number"
                         min="0"
                         max="120"
-                        placeholder="e.g., 6 months"
+                        placeholder="e.g., 6"
                         value={patientAge}
                         onChange={(e) => setPatientAge(e.target.value)}
                         className="patient-input"
@@ -299,7 +299,7 @@ export function VideoUploadView({ onError }: VideoUploadViewProps) {
                 </div>
 
                 <p className="processing-info">
-                  The first <strong>10 seconds</strong> will be analyzed
+                  Note: Only the first <strong>10 seconds</strong> will be analyzed
                 </p>
                 <button
                   className="btn btn-primary process-button"
@@ -326,13 +326,13 @@ export function VideoUploadView({ onError }: VideoUploadViewProps) {
                 {isExtracting && (
                   <div className="extraction-details">
                     <div className="spinner-small"></div>
-                    <span>This may take 10-30 seconds...</span>
+                    <span>This may take up to 30 seconds...</span>
                   </div>
                 )}
                 {isUploading && (
                   <div className="extraction-details">
                     <div className="spinner-small"></div>
-                    <span>Sending to AI pipelines...</span>
+                    <span>Sending to AI Guardian</span>
                   </div>
                 )}
               </div>

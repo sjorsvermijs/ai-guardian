@@ -223,7 +223,7 @@ class FusionEngine:
         # Patient Context
         parts.append("Patient Information:")
         if patient_age is not None:
-            age_str = f"{patient_age} months old" if patient_age < 24 else f"{patient_age // 12} years old"
+            age_str = f"{patient_age} months old" 
             parts.append(f"- Age: {age_str}")
         if patient_sex:
             parts.append(f"- Sex: {patient_sex}")
@@ -302,7 +302,7 @@ class FusionEngine:
                         "- Refer to the baby as 'your baby' or 'the infant'. Never use placeholders like [name].\n"
                         "- Do NOT generate code, functions, or programming syntax.\n"
                         "- Write ONLY natural language text.\n"
-                        "- If signal quality is poor, note reduced confidence but still assess available data.\n"
+                        "- If signal quality is poor, stress reduced confidence but still assess available data.\n"
                         "- Cross-validate findings: if multiple modalities agree (e.g., low SpO2 + adventitious "
                         "respiratory sounds), increase urgency."
                     )
@@ -320,7 +320,7 @@ class FusionEngine:
                         "- <each recommendation on its own line>\n\n"
                         "---SEPARATOR---\n\n"
                         "PARENT MESSAGE:\n"
-                        "<A warm, reassuring message for parents in simple language (max 100 words). "
+                        "<A reassuring message for parents in simple language (max 100 words). "
                         "Explain findings and what to do next. No headers or bullet points, just paragraphs.>\n\n"
                         "---SEPARATOR---\n\n"
                         "SPECIALIST MESSAGE:\n"
