@@ -53,6 +53,21 @@ class Config:
             'max_questions': 10,
             'confidence_threshold': 0.7
         }
+
+        # VGA (Visual Grading Assessment) Configuration
+        self.vga_config = {
+            'screenshot_count': 10,
+            'model_path': MODELS_DIR / 'vga_model',
+            'confidence_threshold': 0.7
+        }
+
+        # Cry Pipeline Configuration
+        self.cry_config = {
+            'backend': 'ast',  # 'ast' or 'hubert'
+            'sample_rate': 16000,
+            'embedding_dim': 768,
+            'model_path': MODELS_DIR / 'cry_classifier'
+        }
         
         # Fusion Engine Configuration
         self.fusion_config = {
@@ -88,7 +103,9 @@ class Config:
             'hear': self.hear_config,
             'rppg': self.rppg_config,
             'medgemma_vqa': self.vqa_config,
-            'vqa': self.vqa_config
+            'vqa': self.vqa_config,
+            'vga': self.vga_config,
+            'cry': self.cry_config
         }
         return config_map.get(pipeline_name.lower(), {})
     

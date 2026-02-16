@@ -10,11 +10,17 @@ import os
 from pathlib import Path
 import numpy as np
 import torch
+import pickle
+from dotenv import load_dotenv
 
 from ...core.base_pipeline import BasePipeline, PipelineResult
 
 # Default model cache directory (project_root/models)
 DEFAULT_CACHE_DIR = Path(__file__).parent.parent.parent.parent / "models"
+
+# Load environment variables from .env file in project root
+PROJECT_ROOT = Path(__file__).parent.parent.parent.parent
+load_dotenv(PROJECT_ROOT / ".env")
 from .audio_utils import (
     preprocess_audio,
     resample_audio_and_convert_to_mono,
@@ -32,6 +38,8 @@ class HeARPipeline(BasePipeline):
     def __init__(self, config: Dict[str, Any]):
         super().__init__(config)
         self.model = None
+        self.classifier_binary = None
+        self.classifier_multiclass = None
         self.device = None
         self.sample_rate = config.get("sample_rate", SAMPLE_RATE)
         self.model_name = config.get("model_name", "google/hear-pytorch")
@@ -49,7 +57,14 @@ class HeARPipeline(BasePipeline):
         try:
             from transformers import AutoModel
 
-            self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+            # Check for MPS (Apple Silicon), CUDA (NVIDIA), then fallback to CPU
+            if torch.backends.mps.is_available():
+                self.device = torch.device("mps")
+            elif torch.cuda.is_available():
+                self.device = torch.device("cuda")
+            else:
+                self.device = torch.device("cpu")
+
             token = os.environ.get("HF_TOKEN")
             self.cache_dir.mkdir(parents=True, exist_ok=True)
             self.model = AutoModel.from_pretrained(
@@ -60,6 +75,24 @@ class HeARPipeline(BasePipeline):
             )
             self.model.to(self.device)
             self.model.eval()
+
+            # Load SPRSound classifiers
+            binary_path = self.cache_dir / "sprsound_classifier" / "mlp_binary.pkl"
+            multiclass_path = self.cache_dir / "sprsound_classifier" / "mlp_multiclass.pkl"
+
+            if binary_path.exists():
+                with open(binary_path, 'rb') as f:
+                    self.classifier_binary = pickle.load(f)
+                print(f"✓ Loaded SPRSound binary classifier (Normal vs Adventitious)")
+            else:
+                print(f"⚠️ Binary classifier not found at {binary_path}")
+
+            if multiclass_path.exists():
+                with open(multiclass_path, 'rb') as f:
+                    self.classifier_multiclass = pickle.load(f)
+                print(f"✓ Loaded SPRSound multiclass classifier (CAS/DAS/Normal/Poor)")
+            else:
+                print(f"⚠️ Multiclass classifier not found at {multiclass_path}")
 
             self.is_initialized = True
             print(f"HeAR Pipeline initialized on {self.device}")
@@ -109,21 +142,84 @@ class HeARPipeline(BasePipeline):
             # Process in 2-second chunks
             embeddings = self._extract_embeddings(audio_data)
 
+            result_data = {
+                "embedding_dim": 512,
+                "num_chunks": len(embeddings),
+            }
+
+            # If classifiers are loaded, make predictions
+            if self.classifier_binary is not None or self.classifier_multiclass is not None:
+                try:
+                    # Make predictions for each chunk
+                    binary_predictions = []
+                    multiclass_predictions = []
+
+                    for embedding in embeddings:
+                        emb_reshaped = np.array(embedding).reshape(1, -1)
+
+                        if self.classifier_binary is not None:
+                            binary_prob = self.classifier_binary.predict_proba(emb_reshaped)[0]
+                            binary_predictions.append(binary_prob)
+
+                        if self.classifier_multiclass is not None:
+                            multi_prob = self.classifier_multiclass.predict_proba(emb_reshaped)[0]
+                            multiclass_predictions.append(multi_prob)
+
+                    # Aggregate predictions across chunks (average probabilities)
+                    if binary_predictions:
+                        avg_binary_prob = np.mean(binary_predictions, axis=0)
+                        binary_labels = ["Normal", "Adventitious"]
+                        binary_pred_idx = np.argmax(avg_binary_prob)
+
+                        result_data["binary_classification"] = {
+                            "prediction": binary_labels[binary_pred_idx],
+                            "confidence": float(avg_binary_prob[binary_pred_idx]),
+                            "probabilities": {
+                                label: float(prob)
+                                for label, prob in zip(binary_labels, avg_binary_prob)
+                            }
+                        }
+
+                    if multiclass_predictions:
+                        avg_multi_prob = np.mean(multiclass_predictions, axis=0)
+                        multi_labels = ["CAS", "CAS & DAS", "DAS", "Normal", "Poor Quality"]
+                        multi_pred_idx = np.argmax(avg_multi_prob)
+
+                        result_data["multiclass_classification"] = {
+                            "prediction": multi_labels[multi_pred_idx],
+                            "confidence": float(avg_multi_prob[multi_pred_idx]),
+                            "probabilities": {
+                                label: float(prob)
+                                for label, prob in zip(multi_labels, avg_multi_prob)
+                            },
+                            "note": "CAS=Crackles, DAS=Wheezes"
+                        }
+
+                    confidence = result_data.get("binary_classification", {}).get("confidence", 0.95)
+
+                except Exception as e:
+                    print(f"⚠️ Classifier prediction failed: {e}")
+                    import traceback
+                    traceback.print_exc()
+                    result_data["embeddings"] = embeddings  # Fallback
+                    confidence = 0.95
+            else:
+                result_data["embeddings"] = embeddings  # No classifiers, return embeddings
+                confidence = 0.95
+
             return PipelineResult(
                 pipeline_name="HeAR",
                 timestamp=datetime.now(),
-                confidence=0.95,
-                data={
-                    "embeddings": embeddings,
-                    "embedding_dim": 512,
-                    "num_chunks": len(embeddings),
-                },
+                confidence=confidence,
+                data=result_data,
                 warnings=[],
                 errors=[],
                 metadata={
                     "sample_rate": SAMPLE_RATE,
                     "duration_seconds": len(audio_data) / SAMPLE_RATE,
                     "model": self.model_name,
+                    "binary_classifier_available": self.classifier_binary is not None,
+                    "multiclass_classifier_available": self.classifier_multiclass is not None,
                 },
             )
         except Exception as e:
@@ -171,4 +267,6 @@ class HeARPipeline(BasePipeline):
         self.is_initialized = False
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
+        elif torch.backends.mps.is_available():
+            torch.mps.empty_cache()
         print("HeAR Pipeline cleaned up")

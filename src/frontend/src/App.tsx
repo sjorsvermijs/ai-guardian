@@ -1,24 +1,24 @@
 import { useState } from 'react';
-import { CameraView } from './components/CameraView';
+import { VideoUploadView } from './components/VideoUploadView';
 import './App.css';
 
 function App() {
-  const [cameraError, setCameraError] = useState<string | null>(null);
+  const [uploadError, setUploadError] = useState<string | null>(null);
 
   return (
     <div className="app">
       <header className="app-header">
         <h1>🩺 AI Guardian</h1>
-        <p className="app-subtitle">Caring for your child's health</p>
+        <p className="app-subtitle">Multi-modal health analysis</p>
       </header>
 
       <main className="app-main">
-        <CameraView onError={setCameraError} />
+        <VideoUploadView onError={setUploadError} />
       </main>
 
-      {cameraError && (
+      {uploadError && (
         <div className="app-footer">
-          <p className="error-status">Camera: {cameraError}</p>
+          <p className="error-status">Error: {uploadError}</p>
         </div>
       )}
     </div>

@@ -16,6 +16,7 @@ from datetime import datetime
 from pathlib import Path
 import numpy as np
 import torch
+import pickle
 
 from ...core.base_pipeline import BasePipeline, PipelineResult
 
@@ -26,6 +27,8 @@ BACKENDS = {
     "ast": "MIT/ast-finetuned-audioset-10-10-0.4593",
     "hubert": "facebook/hubert-base-ls960",
 }
+
+CRY_LABELS = ["belly", "burping", "cold", "discomfort", "hungry", "tired"]
 
 
 class CryPipeline(BasePipeline):
@@ -38,6 +41,7 @@ class CryPipeline(BasePipeline):
         super().__init__(config)
         self.model = None
         self.processor = None
+        self.classifier = None
         self.device = None
         self.sample_rate = config.get("sample_rate", SAMPLE_RATE)
         self.backend = config.get("model_backend", "ast")
@@ -49,9 +53,14 @@ class CryPipeline(BasePipeline):
     def initialize(self) -> bool:
         """Load the selected model from HuggingFace."""
         try:
-            self.device = torch.device(
-                "cuda" if torch.cuda.is_available() else "cpu"
-            )
+            # Check for MPS (Apple Silicon), CUDA (NVIDIA), then fallback to CPU
+            if torch.backends.mps.is_available():
+                self.device = torch.device("mps")
+            elif torch.cuda.is_available():
+                self.device = torch.device("cuda")
+            else:
+                self.device = torch.device("cpu")
+
             self.cache_dir.mkdir(parents=True, exist_ok=True)
 
             if self.backend == "hubert":
@@ -61,6 +70,16 @@ class CryPipeline(BasePipeline):
 
             self.model.to(self.device)
             self.model.eval()
+
+            # Load cry classifier
+            classifier_path = self.cache_dir / "cry_classifier" / "svm_ast.pkl"
+            if classifier_path.exists():
+                with open(classifier_path, 'rb') as f:
+                    self.classifier = pickle.load(f)
+                print(f"✓ Loaded cry classifier from {classifier_path}")
+            else:
+                print(f"⚠️ Cry classifier not found at {classifier_path}, will return embeddings only")
+
             self.is_initialized = True
             print(
                 f"Cry Pipeline ({self.backend}) initialized on {self.device}",
@@ -117,14 +136,38 @@ class CryPipeline(BasePipeline):
 
             embedding = self._extract_embedding(audio_data)
 
+            # If classifier is loaded, make predictions
+            result_data = {
+                "embedding_dim": len(embedding),
+            }
+
+            if self.classifier is not None:
+                try:
+                    # Predict probabilities for each class
+                    probabilities = self.classifier.predict_proba(embedding.reshape(1, -1))[0]
+                    predicted_class_idx = np.argmax(probabilities)
+                    predicted_class = CRY_LABELS[predicted_class_idx]
+                    confidence = float(probabilities[predicted_class_idx])
+
+                    result_data.update({
+                        "prediction": predicted_class,
+                        "confidence": confidence,
+                        "probabilities": {
+                            label: float(prob)
+                            for label, prob in zip(CRY_LABELS, probabilities)
+                        }
+                    })
+                except Exception as e:
+                    print(f"⚠️ Classifier prediction failed: {e}")
+                    result_data["embedding"] = embedding  # Fallback to embedding
+            else:
+                result_data["embedding"] = embedding  # No classifier, return embedding
+
             return PipelineResult(
                 pipeline_name="Cry",
                 timestamp=datetime.now(),
-                confidence=0.95,
-                data={
-                    "embedding": embedding,
-                    "embedding_dim": len(embedding),
-                },
+                confidence=result_data.get("confidence", 0.95),
+                data=result_data,
                 warnings=[],
                 errors=[],
                 metadata={
@@ -132,6 +175,7 @@ class CryPipeline(BasePipeline):
                     "duration_seconds": len(audio_data) / SAMPLE_RATE,
                     "model": self.model_name,
                     "backend": self.backend,
+                    "classifier_available": self.classifier is not None,
                 },
             )
         except Exception as e:
@@ -190,4 +234,6 @@ class CryPipeline(BasePipeline):
         self.is_initialized = False
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
+        elif torch.backends.mps.is_available():
+            torch.mps.empty_cache()
         print("Cry Pipeline cleaned up", flush=True)
