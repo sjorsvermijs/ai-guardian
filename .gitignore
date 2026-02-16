@@ -214,12 +214,16 @@ data/*.jpg
 data/*.png
 data/*.jpeg
 
+# SPRSound dataset (large, downloaded separately)
+data/sprsound/
+data/sprsound_embeddings/
+
+# Donate a Cry dataset
+data/donate_a_cry/
+data/donate_a_cry_embeddings/
+
 # Model files
-models/*.pt
-models/*.pth
-models/*.onnx
-models/*.h5
-models/*.pb
+models/
 
 # Logs
 logs/
