@@ -234,24 +234,23 @@ class HeARPipeline(BasePipeline):
             )
 
     def _extract_embeddings(self, audio_data: np.ndarray) -> List[np.ndarray]:
-        """Extract embeddings from audio in 2-second chunks."""
-        embeddings = []
-
-        # Split into 2-second chunks (32000 samples at 16kHz)
+        """Extract embeddings from audio in 2-second chunks (batched)."""
+        # Preprocess all chunks into spectrograms
+        spectrograms = []
         for start in range(0, len(audio_data), CLIP_LENGTH):
             chunk = audio_data[start : start + CLIP_LENGTH]
-
-            # Prepare tensor (will be padded if < 2s)
             audio_tensor = torch.tensor(chunk, dtype=torch.float32).unsqueeze(0)
-            spectrogram = preprocess_audio(audio_tensor).to(self.device)
+            spectrograms.append(preprocess_audio(audio_tensor))
 
-            # Get embedding
-            with torch.no_grad():
-                output = self.model(spectrogram, return_dict=True, output_hidden_states=True)
-                embedding = output.pooler_output.cpu().numpy().flatten()
-                embeddings.append(embedding)
+        # Batch all spectrograms into a single forward pass
+        batch = torch.cat(spectrograms, dim=0).to(self.device)
 
-        return embeddings
+        with torch.no_grad():
+            output = self.model(batch, return_dict=True, output_hidden_states=True)
+            # pooler_output shape: (num_chunks, 512)
+            all_embeddings = output.pooler_output.cpu().numpy()
+
+        return [all_embeddings[i] for i in range(all_embeddings.shape[0])]
 
     def validate_input(self, audio_data: Any) -> bool:
         """Validate audio input format."""

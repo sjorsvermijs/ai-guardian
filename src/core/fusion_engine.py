@@ -336,7 +336,7 @@ class FusionEngine:
                 self.medgemma_model,
                 self.medgemma_tokenizer,
                 prompt=prompt,
-                max_tokens=600,
+                max_tokens=450,
                 verbose=False
             )
             result = self._clean_llm_output(result)

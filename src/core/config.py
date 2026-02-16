@@ -35,7 +35,7 @@ class Config:
         self.rppg_config = {
             'model_name': 'ME-chunk.rlap',  # Best performing model (84.5% SQI)
             'model_path': MODELS_DIR / 'rppg_model.pt',
-            'fps': 30,
+            'fps': 15,  # 15fps sufficient for rPPG (signal <4Hz, Nyquist ≥8fps)
             'window_size': 10,  # seconds
             'roi_method': 'face_detection',
             'signal_processing': {

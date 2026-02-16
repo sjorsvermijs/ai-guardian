@@ -7,10 +7,12 @@
  * - Screenshots (10 evenly distributed) for VGA pipeline
  */
 
-const TARGET_FPS = 30;
+const TARGET_FPS = 15;
 const TARGET_DURATION = 10; // seconds
 const SCREENSHOT_COUNT = 10;
 const AUDIO_SAMPLE_RATE = 16000;
+const MAX_FRAME_WIDTH = 640;
+const MAX_FRAME_HEIGHT = 480;
 
 /**
  * Extract first 10 seconds of video as a Blob
@@ -71,8 +73,10 @@ export async function extractFrames(
     video.muted = true;
 
     video.onloadedmetadata = async () => {
-      canvas.width = video.videoWidth;
-      canvas.height = video.videoHeight;
+      // Downscale to 480p max — rPPG only needs face-region color averages
+      const scale = Math.min(1, MAX_FRAME_WIDTH / video.videoWidth, MAX_FRAME_HEIGHT / video.videoHeight);
+      canvas.width = Math.round(video.videoWidth * scale);
+      canvas.height = Math.round(video.videoHeight * scale);
 
       const actualDuration = Math.min(video.duration, duration);
 
@@ -92,11 +96,11 @@ export async function extractFrames(
             video.addEventListener('seeked', seekHandler);
           });
 
-          // Draw frame to canvas
+          // Draw frame to canvas (scaled down)
           ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
 
-          // Convert to base64 JPEG (quality 0.85 for good balance)
-          const frameData = canvas.toDataURL('image/jpeg', 0.85);
+          // Convert to base64 JPEG (quality 0.70 — sufficient for rPPG color signals)
+          const frameData = canvas.toDataURL('image/jpeg', 0.70);
           frames.push(frameData);
 
           currentFrame++;

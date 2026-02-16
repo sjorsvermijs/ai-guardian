@@ -87,11 +87,7 @@ def _ema(
     else:
         ema_state = initial_state
 
-    identity_kernel_gain = smooth_coef
-    identity_recurrent_gain = 1.0 - smooth_coef
-
-    identity_kernel = torch.eye(num_channels, dtype=torch.float32, device=inputs.device) * identity_kernel_gain
-    identity_recurrent_kernel = torch.eye(num_channels, dtype=torch.float32, device=inputs.device) * identity_recurrent_gain
+    recurrent_gain = 1.0 - smooth_coef
 
     output_sequence = []
     start = initial_state is not None
@@ -99,10 +95,10 @@ def _ema(
         output_sequence.append(ema_state)
 
     for t in range(start, timesteps):
-        current_input = inputs[:, t, :]
-        output = torch.matmul(current_input, identity_kernel) + torch.matmul(ema_state, identity_recurrent_kernel)
-        ema_state = output
-        output_sequence.append(output)
+        # Element-wise EMA: equivalent to matmul with diagonal identity matrices
+        # but avoids allocating and multiplying NxN matrices each timestep
+        ema_state = inputs[:, t, :] * smooth_coef + ema_state * recurrent_gain
+        output_sequence.append(ema_state)
 
     return torch.stack(output_sequence, dim=1)
 
