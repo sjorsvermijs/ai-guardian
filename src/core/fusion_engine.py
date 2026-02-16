@@ -104,18 +104,26 @@ class FusionEngine:
                 print(f"⚠️ Failed to load MedGemma: {e}")
             self.use_medgemma = False
     
-    def fuse(self, 
+    def fuse(self,
              hear_result: PipelineResult = None,
              rppg_result: PipelineResult = None,
-             vqa_result: PipelineResult = None) -> TriageReport:
+             cry_result: PipelineResult = None,
+             vqa_result: PipelineResult = None,
+             patient_age: int = None,
+             patient_sex: str = None,
+             parent_notes: str = None) -> TriageReport:
         """
         Fuse results from all pipelines into a comprehensive triage report
-        
+
         Args:
             hear_result: Result from HeAR pipeline
             rppg_result: Result from rPPG pipeline
-            vqa_result: Result from MedGemma VQA pipeline
-            
+            cry_result: Result from Cry classification pipeline
+            vqa_result: Result from VGA/MedGemma VQA pipeline
+            patient_age: Patient age in months (for infants) or years
+            patient_sex: Patient sex/gender
+            parent_notes: Additional observations from parents
+
         Returns:
             TriageReport: Comprehensive medical assessment
         """
@@ -162,12 +170,24 @@ class FusionEngine:
             if spo2 < 90:
                 critical_alerts.append(f"Low oxygen saturation: {spo2}%")
         
-        # Extract acoustic indicators from HeAR
+        # Extract acoustic indicators from HeAR and Cry
         acoustic_indicators = {}
         if hear_result:
-            acoustic_indicators = hear_result.data.copy()
+            acoustic_indicators['hear'] = hear_result.data.copy()
             if hear_result.data.get('cough_detected'):
                 critical_alerts.append("Persistent coughing detected")
+
+        if cry_result:
+            acoustic_indicators['cry'] = cry_result.data.copy()
+            cry_type = cry_result.data.get('prediction')
+            cry_confidence = cry_result.data.get('confidence', 0)
+            if cry_type and cry_confidence > 0.6:
+                if cry_type == 'discomfort':
+                    critical_alerts.append(f"Baby crying due to discomfort ({cry_confidence*100:.0f}% confidence)")
+                elif cry_type == 'hungry':
+                    recommendations.append(f"Baby may be hungry ({cry_confidence*100:.0f}% confidence)")
+                elif cry_type in ['belly', 'cold']:
+                    critical_alerts.append(f"Baby crying: {cry_type} issue detected ({cry_confidence*100:.0f}% confidence)")
         
         # Extract visual indicators from VQA
         visual_indicators = {}
@@ -196,12 +216,15 @@ class FusionEngine:
             vital_signs
         )
         
-        # Generate MedGemma clinical interpretation
+        # Generate MedGemma clinical interpretation with patient context
         medgemma_interpretation = self._generate_medgemma_interpretation(
             vital_signs,
             acoustic_indicators,
             visual_indicators,
-            critical_alerts
+            critical_alerts,
+            patient_age,
+            patient_sex,
+            parent_notes
         )
         
         # Create summary
@@ -228,7 +251,8 @@ class FusionEngine:
             individual_results={
                 'hear': hear_result,
                 'rppg': rppg_result,
-                'medgemma_vqa': vqa_result
+                'cry': cry_result,
+                'vga': vqa_result
             },
             metadata={
                 'fusion_engine_version': '0.1.0',
@@ -283,17 +307,33 @@ class FusionEngine:
                                          vital_signs: Dict[str, Any],
                                          acoustic_indicators: Dict[str, Any],
                                          visual_indicators: Dict[str, Any],
-                                         critical_alerts: List[str]) -> Optional[str]:
+                                         critical_alerts: List[str],
+                                         patient_age: int = None,
+                                         patient_sex: str = None,
+                                         parent_notes: str = None) -> Optional[str]:
         """Generate clinical interpretation using MedGemma"""
         if not self.use_medgemma or not self.medgemma_model:
             return None
         
         try:
             # Build clinical summary for MedGemma
-            clinical_summary = "Patient Assessment via Remote Vital Signs Monitoring:\n\n"
+            clinical_summary = "INFANT HEALTH ASSESSMENT - Multi-Modal Analysis:\n\n"
+
+            # Patient Context
+            clinical_summary += "**Patient Information:**\n"
+            if patient_age is not None:
+                age_str = f"{patient_age} months old" if patient_age < 24 else f"{patient_age//12} years old"
+                clinical_summary += f"- Age: {age_str}\n"
+            if patient_sex:
+                clinical_summary += f"- Sex: {patient_sex}\n"
+            if parent_notes:
+                clinical_summary += f"- Parent Observations: {parent_notes}\n"
+            clinical_summary += "\n"
+
             clinical_summary += "**Measurement Method:**\n"
-            clinical_summary += "- Remote photoplethysmography (rPPG) via webcam - non-contact optical measurement\n"
-            clinical_summary += "- Signal quality indicates measurement reliability\n\n"
+            clinical_summary += "- Video-based vital signs (rPPG)\n"
+            clinical_summary += "- Audio analysis (cry patterns, respiratory sounds)\n"
+            clinical_summary += "- Visual assessment\n\n"
             
             # Vital Signs
             if vital_signs:
@@ -310,11 +350,28 @@ class FusionEngine:
                     clinical_summary += f"- Signal Quality: {sqi:.1%} ({sqi_desc})\n"
                 clinical_summary += "\n"
             
-            # Acoustic Indicators
+            # Acoustic Indicators (HeAR + Cry)
             if acoustic_indicators:
-                clinical_summary += "Acoustic Analysis:\n"
-                for key, value in acoustic_indicators.items():
-                    clinical_summary += f"- {key.replace('_', ' ').title()}: {value}\n"
+                clinical_summary += "**Acoustic Analysis:**\n"
+
+                # Cry Analysis
+                if 'cry' in acoustic_indicators:
+                    cry_data = acoustic_indicators['cry']
+                    if 'prediction' in cry_data:
+                        confidence = cry_data.get('confidence', 0) * 100
+                        clinical_summary += f"- Cry Type: {cry_data['prediction']} ({confidence:.0f}% confidence)\n"
+
+                # HeAR Respiratory Analysis
+                if 'hear' in acoustic_indicators:
+                    hear_data = acoustic_indicators['hear']
+                    if 'binary_classification' in hear_data:
+                        assessment = hear_data['binary_classification']['prediction']
+                        confidence = hear_data['binary_classification']['confidence'] * 100
+                        clinical_summary += f"- Respiratory Sounds: {assessment} ({confidence:.0f}% confidence)\n"
+                    if 'multiclass_classification' in hear_data:
+                        sound_type = hear_data['multiclass_classification']['prediction']
+                        clinical_summary += f"- Sound Type: {sound_type}\n"
+
                 clinical_summary += "\n"
             
             # Visual Indicators
@@ -336,18 +393,21 @@ class FusionEngine:
                 {
                     "role": "system",
                     "content": (
-                        "You are an expert emergency medicine physician interpreting data from a remote vital signs monitoring system. "
-                        "The measurements are obtained via rPPG (remote photoplethysmography) using a webcam - this is a non-contact, "
-                        "camera-based technology that detects subtle color changes in facial skin to estimate vital signs. "
-                        "Signal quality indicates measurement reliability. "
-                        "\n\nNORMAL RANGES:\n"
-                        "- Signal Quality: >50% is acceptable, >70% is good\n"
-                        "\nProvide concise, accurate clinical interpretation. Do not flag normal values as abnormal."
+                        "You are a pediatric emergency medicine physician reviewing an AI-assisted infant health assessment. "
+                        "The system combines:\n"
+                        "1. Video-based vital signs (rPPG)\n"
+                        "2. Cry pattern analysis (hungry, discomfort, pain, etc.)\n"
+                        "3. Respiratory sound analysis (normal, adventitious sounds, crackles, wheezes)\n"
+                        "4. Visual assessment (skin color, breathing patterns)\n"
+                        "\nINFANT NORMAL RANGES:\n"
+                        "- Heart Rate: 100-160 BPM (newborns), 90-150 BPM (infants)\n"
+                        "- Respiratory Rate: 30-60 breaths/min (newborns), 25-40 (infants)\n"
+                        "\nProvide parent-friendly, actionable guidance. Be reassuring when appropriate but clear about concerning findings."
                     )
                 },
                 {
                     "role": "user",
-                    "content": f"{clinical_summary}\n\nProvide:\n1. Clinical interpretation (2-3 sentences)\n2. Triage priority: CRITICAL/URGENT/MODERATE/LOW\n3. Recommendations (if needed)"
+                    "content": f"{clinical_summary}\n\nProvide a concise parent-friendly assessment:\n1. **Overall Status:** (2-3 sentences summarizing baby's condition)\n2. **Priority Level:** CRITICAL/URGENT/MODERATE/LOW\n3. **Recommended Actions:** (Clear, actionable steps for parents)"
                 }
             ]
             

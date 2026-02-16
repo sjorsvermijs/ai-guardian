@@ -44,11 +44,21 @@ interface VGAResult {
   message?: string;
 }
 
+interface TriageReport {
+  priority_level: string;
+  critical_alerts: string[];
+  recommendations: string[];
+  medical_interpretation: string;
+  confidence_score: number;
+  timestamp: string;
+}
+
 interface ProcessingResults {
   rppg?: VitalSigns;
   cry?: CryResult;
   hear?: HeARResult;
   vga?: VGAResult;
+  triage?: TriageReport;
   processing_time_ms?: number;
   timestamp?: string;
   error?: string;
@@ -72,6 +82,11 @@ export function VideoUploadView({ onError }: VideoUploadViewProps) {
   const [progressPercent, setProgressPercent] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [results, setResults] = useState<ProcessingResults | null>(null);
+
+  // Patient context fields
+  const [patientAge, setPatientAge] = useState<string>('');
+  const [patientSex, setPatientSex] = useState<string>('');
+  const [parentNotes, setParentNotes] = useState<string>('');
 
   const handleFileSelect = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -123,13 +138,20 @@ export function VideoUploadView({ onError }: VideoUploadViewProps) {
       setIsExtracting(false);
       setIsUploading(true);
 
-      // Send to backend
+      // Send to backend with patient context
+      const requestBody = {
+        ...processedData,
+        patient_age: patientAge ? parseInt(patientAge) : null,
+        patient_sex: patientSex || null,
+        parent_notes: parentNotes || null
+      };
+
       const response = await fetch(API_URL, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify(processedData)
+        body: JSON.stringify(requestBody)
       });
 
       const result = await response.json();
@@ -164,6 +186,9 @@ export function VideoUploadView({ onError }: VideoUploadViewProps) {
     setError(null);
     setExtractionProgress('');
     setProgressPercent(0);
+    setPatientAge('');
+    setPatientSex('');
+    setParentNotes('');
     if (fileInputRef.current) {
       fileInputRef.current.value = '';
     }
@@ -225,6 +250,53 @@ export function VideoUploadView({ onError }: VideoUploadViewProps) {
 
             {!isExtracting && !isUploading && (
               <div className="action-section">
+                <div className="patient-info-section">
+                  <h4>Patient Information (Optional)</h4>
+                  <p className="info-subtitle">Help our AI provide better guidance</p>
+
+                  <div className="patient-inputs">
+                    <div className="input-group">
+                      <label htmlFor="patient-age">Age (months or years)</label>
+                      <input
+                        id="patient-age"
+                        type="number"
+                        min="0"
+                        max="120"
+                        placeholder="e.g., 6 months"
+                        value={patientAge}
+                        onChange={(e) => setPatientAge(e.target.value)}
+                        className="patient-input"
+                      />
+                    </div>
+
+                    <div className="input-group">
+                      <label htmlFor="patient-sex">Sex</label>
+                      <select
+                        id="patient-sex"
+                        value={patientSex}
+                        onChange={(e) => setPatientSex(e.target.value)}
+                        className="patient-input"
+                      >
+                        <option value="">Select...</option>
+                        <option value="Male">Male</option>
+                        <option value="Female">Female</option>
+                      </select>
+                    </div>
+                  </div>
+
+                  <div className="input-group">
+                    <label htmlFor="parent-notes">Additional Notes</label>
+                    <textarea
+                      id="parent-notes"
+                      placeholder="Any observations or concerns? (e.g., 'coughing for 2 days', 'seems fussy after feeding')"
+                      value={parentNotes}
+                      onChange={(e) => setParentNotes(e.target.value)}
+                      className="patient-input notes-input"
+                      rows={3}
+                    />
+                  </div>
+                </div>
+
                 <p className="processing-info">
                   The first <strong>10 seconds</strong> will be analyzed
                 </p>
@@ -275,6 +347,61 @@ export function VideoUploadView({ onError }: VideoUploadViewProps) {
                 Analyze Another Video
               </button>
             </div>
+
+            {/* AI Triage Report (Main View) */}
+            {results.triage && (
+              <div className="triage-report-main">
+                <div className="triage-header">
+                  <h2>🩺 AI Medical Assessment</h2>
+                  <span className={`priority-badge priority-${results.triage.priority_level.toLowerCase()}`}>
+                    {results.triage.priority_level}
+                  </span>
+                </div>
+
+                {results.triage.critical_alerts && results.triage.critical_alerts.length > 0 && (
+                  <div className="critical-alerts">
+                    <h3>⚠️ Important Alerts</h3>
+                    <ul>
+                      {results.triage.critical_alerts.map((alert, index) => (
+                        <li key={index}>{alert}</li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+
+                {results.triage.recommendations && results.triage.recommendations.length > 0 && (
+                  <div className="recommendations">
+                    <h3>📋 Recommendations</h3>
+                    <ul>
+                      {results.triage.recommendations.map((rec, index) => (
+                        <li key={index}>{rec}</li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+
+                {results.triage.medical_interpretation && (
+                  <div className="medical-interpretation">
+                    <h3>🧠 Medical Reasoning</h3>
+                    <div className="interpretation-text">
+                      {results.triage.medical_interpretation.split('\n').map((line, index) => (
+                        <p key={index}>{line}</p>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                <div className="confidence-info">
+                  <span>Confidence: {(results.triage.confidence_score * 100).toFixed(0)}%</span>
+                </div>
+              </div>
+            )}
+
+            {/* Detailed Pipeline Results (Expandable) */}
+            <details className="pipeline-details">
+              <summary className="details-summary">
+                <h3>📊 View Detailed Measurements</h3>
+              </summary>
 
             <div className="results-grid">
               {/* rPPG Results */}
@@ -434,6 +561,7 @@ export function VideoUploadView({ onError }: VideoUploadViewProps) {
                 )}
               </div>
             </div>
+            </details>
 
             {results.processing_time_ms && (
               <div className="processing-stats">

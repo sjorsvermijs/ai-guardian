@@ -26,6 +26,7 @@ from src.pipelines.cry.pipeline import CryPipeline
 from src.pipelines.hear.pipeline import HeARPipeline
 from src.pipelines.vga.pipeline import VGAPipeline
 from src.core.config import config
+from src.core.fusion_engine import FusionEngine, TriageReport
 import io
 import wave
 
@@ -46,6 +47,7 @@ rppg_pipeline: Optional[RPPGPipeline] = None
 cry_pipeline: Optional[CryPipeline] = None
 hear_pipeline: Optional[HeARPipeline] = None
 vga_pipeline: Optional[VGAPipeline] = None
+fusion_engine: Optional[FusionEngine] = None
 
 
 class HealthResponse(BaseModel):
@@ -56,7 +58,7 @@ class HealthResponse(BaseModel):
 @app.on_event("startup")
 async def startup_event():
     """Initialize on startup"""
-    global executor, rppg_pipeline, cry_pipeline, hear_pipeline, vga_pipeline
+    global executor, rppg_pipeline, cry_pipeline, hear_pipeline, vga_pipeline, fusion_engine
     print("🚀 Starting AI Guardian API...")
     print("="*60)
 
@@ -104,12 +106,23 @@ async def startup_event():
         print(f"❌ Failed to initialize VGA pipeline: {e}")
         vga_pipeline = None
 
+    # Initialize FusionEngine (MedGemma-powered AI reasoning)
+    print("\n🧠 Initializing FusionEngine (MedGemma 4B)...")
+    try:
+        fusion_engine = FusionEngine()
+        fusion_engine.initialize()
+        print(f"✓ FusionEngine ready (Medical AI Reasoning)")
+    except Exception as e:
+        print(f"❌ Failed to initialize FusionEngine: {e}")
+        fusion_engine = None
+
     print("\n" + "="*60)
     print("🎉 AI Guardian API Ready!")
     print("   - rPPG:", "✓" if rppg_pipeline else "✗")
     print("   - Cry:", "✓" if cry_pipeline else "✗")
     print("   - HeAR:", "✓" if hear_pipeline else "✗")
     print("   - VGA:", "✓" if vga_pipeline else "✗")
+    print("   - FusionEngine:", "✓" if fusion_engine else "✗")
     print("="*60 + "\n")
 
 
@@ -146,6 +159,10 @@ class VideoProcessRequest(BaseModel):
     audio_data: str           # Base64-encoded WAV audio (16kHz mono)
     screenshots: List[str]    # 10 base64-encoded screenshots for VGA
     metadata: Dict[str, Any]  # FPS, duration, filename, etc.
+    # Patient context for AI reasoning
+    patient_age: Optional[int] = None      # Age in months (infants) or years
+    patient_sex: Optional[str] = None      # Sex/gender
+    parent_notes: Optional[str] = None     # Additional observations
 
 
 class FrameBatchRequest(BaseModel):
@@ -511,6 +528,26 @@ async def process_video_endpoint(request: VideoProcessRequest):
 
         rppg_result, cry_result, hear_result, vga_result = results
 
+        # Generate AI-powered triage report using FusionEngine
+        triage_report = None
+        if fusion_engine and fusion_engine.is_initialized:
+            print("\n🧠 Generating AI triage report with FusionEngine...")
+            try:
+                triage_report = fusion_engine.fuse(
+                    hear_result=hear_result if not isinstance(hear_result, Exception) else None,
+                    rppg_result=rppg_result if not isinstance(rppg_result, Exception) else None,
+                    cry_result=cry_result if not isinstance(cry_result, Exception) else None,
+                    vqa_result=vga_result if not isinstance(vga_result, Exception) else None,
+                    patient_age=request.patient_age,
+                    patient_sex=request.patient_sex,
+                    parent_notes=request.parent_notes
+                )
+                print(f"✓ Triage report generated: {triage_report.priority_level}")
+            except Exception as e:
+                print(f"⚠️ FusionEngine error: {e}")
+                import traceback
+                traceback.print_exc()
+
         # Build response
         processing_time_ms = (time.time() - start_time) * 1000
 
@@ -522,6 +559,17 @@ async def process_video_endpoint(request: VideoProcessRequest):
             "processing_time_ms": processing_time_ms,
             "timestamp": datetime.now().isoformat()
         }
+
+        # Add triage report if available
+        if triage_report:
+            response["triage"] = {
+                "priority_level": triage_report.priority_level,
+                "critical_alerts": triage_report.critical_alerts,
+                "recommendations": triage_report.recommendations,
+                "medical_interpretation": triage_report.medical_interpretation,
+                "confidence_score": triage_report.confidence_score,
+                "timestamp": triage_report.timestamp.isoformat()
+            }
 
         print(f"\n✅ Processing complete in {processing_time_ms:.0f}ms")
         print("="*60 + "\n")
