@@ -6,10 +6,15 @@ https://huggingface.co/google/hear-pytorch
 
 from typing import Any, Dict, List
 from datetime import datetime
+import os
+from pathlib import Path
 import numpy as np
 import torch
 
 from ...core.base_pipeline import BasePipeline, PipelineResult
+
+# Default model cache directory (project_root/models)
+DEFAULT_CACHE_DIR = Path(__file__).parent.parent.parent.parent / "models"
 from .audio_utils import (
     preprocess_audio,
     resample_audio_and_convert_to_mono,
@@ -30,6 +35,7 @@ class HeARPipeline(BasePipeline):
         self.device = None
         self.sample_rate = config.get("sample_rate", SAMPLE_RATE)
         self.model_name = config.get("model_name", "google/hear-pytorch")
+        self.cache_dir = Path(config.get("cache_dir", DEFAULT_CACHE_DIR))
 
     def initialize(self) -> bool:
         """
@@ -44,7 +50,14 @@ class HeARPipeline(BasePipeline):
             from transformers import AutoModel
 
             self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-            self.model = AutoModel.from_pretrained(self.model_name, trust_remote_code=True)
+            token = os.environ.get("HF_TOKEN")
+            self.cache_dir.mkdir(parents=True, exist_ok=True)
+            self.model = AutoModel.from_pretrained(
+                self.model_name,
+                trust_remote_code=True,
+                token=token,
+                cache_dir=self.cache_dir,
+            )
             self.model.to(self.device)
             self.model.eval()
 
