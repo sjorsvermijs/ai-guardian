@@ -58,23 +58,27 @@ class TestFusionEngine:
     def test_fusion_normal_case(self, fusion_engine, sample_results):
         """Test fusion with normal vital signs"""
         hear, rppg, vqa = sample_results
-        
-        report = fusion_engine.fuse(hear, rppg, vqa)
-        
+
+        report = fusion_engine.fuse(
+            hear_result=hear, rppg_result=rppg, vqa_result=vqa
+        )
+
         assert report.priority in [TriagePriority.LOW, TriagePriority.MODERATE]
         assert 0.0 <= report.confidence <= 1.0
         assert len(report.recommendations) > 0
-    
+
     def test_fusion_critical_case(self, fusion_engine, sample_results):
         """Test fusion with critical indicators"""
         hear, rppg, vqa = sample_results
-        
+
         # Modify to create critical condition
         rppg.data['spo2'] = 85  # Low oxygen
         vqa.data['critical_flags'] = ['Cyanosis detected']
-        
-        report = fusion_engine.fuse(hear, rppg, vqa)
-        
+
+        report = fusion_engine.fuse(
+            hear_result=hear, rppg_result=rppg, vqa_result=vqa
+        )
+
         assert report.priority in [TriagePriority.CRITICAL, TriagePriority.URGENT]
         assert len(report.critical_alerts) > 0
     

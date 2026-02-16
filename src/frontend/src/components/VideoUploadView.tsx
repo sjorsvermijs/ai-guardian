@@ -69,7 +69,7 @@ interface VideoUploadViewProps {
   onError?: (error: string) => void;
 }
 
-const API_URL = 'http://localhost:8000/api/process-video';
+const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000/api/process-video';
 
 export function VideoUploadView({ onError }: VideoUploadViewProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);

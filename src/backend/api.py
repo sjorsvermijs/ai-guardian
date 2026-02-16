@@ -3,19 +3,23 @@ FastAPI Backend for AI Guardian - Simplified Version
 Uses batch frame processing to avoid threading issues
 """
 
+import io
+import logging
+import wave
+import base64
+import time
+import sys
+import asyncio
+from datetime import datetime
+from pathlib import Path
+from typing import Optional, Dict, Any, List
+from concurrent.futures import ThreadPoolExecutor
+
+import cv2
+import numpy as np
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-import base64
-import cv2
-import numpy as np
-from typing import Optional, Dict, Any, List
-import asyncio
-from datetime import datetime
-import time
-import sys
-from pathlib import Path
-from concurrent.futures import ThreadPoolExecutor
 
 # Add project root to path for imports
 project_root = Path(__file__).parent.parent.parent
@@ -27,8 +31,12 @@ from src.pipelines.hear.pipeline import HeARPipeline
 from src.pipelines.vga.pipeline import VGAPipeline
 from src.core.config import config
 from src.core.fusion_engine import FusionEngine, TriageReport
-import io
-import wave
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(name)s] %(levelname)s: %(message)s",
+)
+logger = logging.getLogger("ai_guardian")
 
 app = FastAPI(title="AI Guardian API", version="1.0.0")
 
@@ -59,71 +67,67 @@ class HealthResponse(BaseModel):
 async def startup_event():
     """Initialize on startup"""
     global executor, rppg_pipeline, cry_pipeline, hear_pipeline, vga_pipeline, fusion_engine
-    print("🚀 Starting AI Guardian API...")
-    print("="*60)
+    logger.info("Starting AI Guardian API...")
 
     # Create thread pool executor (increased for parallel pipeline processing)
     executor = ThreadPoolExecutor(max_workers=4)
-    print("✓ Thread pool ready (4 workers)")
+    logger.info("Thread pool ready (4 workers)")
 
     # Initialize rPPG pipeline
-    print("\n📊 Initializing rPPG pipeline...")
+    logger.info("Initializing rPPG pipeline...")
     try:
         rppg_pipeline = RPPGPipeline(config.rppg_config)
         rppg_pipeline.initialize()
-        print(f"✓ rPPG Pipeline ready (model: {config.rppg_config['model_name']})")
+        logger.info("rPPG Pipeline ready (model: %s)", config.rppg_config['model_name'])
     except Exception as e:
-        print(f"❌ Failed to initialize rPPG pipeline: {e}")
+        logger.error("Failed to initialize rPPG pipeline: %s", e)
         rppg_pipeline = None
 
     # Initialize Cry pipeline
-    print("\n👶 Initializing Cry pipeline...")
+    logger.info("Initializing Cry pipeline...")
     try:
         cry_pipeline = CryPipeline(config.get_pipeline_config('cry'))
         cry_pipeline.initialize()
-        print(f"✓ Cry Pipeline ready (backend: {config.cry_config['backend']})")
+        logger.info("Cry Pipeline ready (backend: %s)", config.cry_config['backend'])
     except Exception as e:
-        print(f"❌ Failed to initialize Cry pipeline: {e}")
+        logger.error("Failed to initialize Cry pipeline: %s", e)
         cry_pipeline = None
 
     # Initialize HeAR pipeline
-    print("\n🫁 Initializing HeAR pipeline...")
+    logger.info("Initializing HeAR pipeline...")
     try:
         hear_pipeline = HeARPipeline(config.get_pipeline_config('hear'))
         hear_pipeline.initialize()
-        print(f"✓ HeAR Pipeline ready")
+        logger.info("HeAR Pipeline ready")
     except Exception as e:
-        print(f"❌ Failed to initialize HeAR pipeline: {e}")
+        logger.error("Failed to initialize HeAR pipeline: %s", e)
         hear_pipeline = None
 
     # Initialize VGA pipeline (placeholder stub)
-    print("\n👁️ Initializing VGA pipeline...")
+    logger.info("Initializing VGA pipeline...")
     try:
         vga_pipeline = VGAPipeline(config.get_pipeline_config('vga'))
         vga_pipeline.initialize()
-        print(f"✓ VGA Pipeline ready (placeholder stub)")
+        logger.info("VGA Pipeline ready (placeholder stub)")
     except Exception as e:
-        print(f"❌ Failed to initialize VGA pipeline: {e}")
+        logger.error("Failed to initialize VGA pipeline: %s", e)
         vga_pipeline = None
 
     # Initialize FusionEngine (MedGemma-powered AI reasoning)
-    print("\n🧠 Initializing FusionEngine (MedGemma 4B)...")
+    logger.info("Initializing FusionEngine (MedGemma 4B)...")
     try:
         fusion_engine = FusionEngine()
         fusion_engine.initialize()
-        print(f"✓ FusionEngine ready (Medical AI Reasoning)")
+        logger.info("FusionEngine ready (Medical AI Reasoning)")
     except Exception as e:
-        print(f"❌ Failed to initialize FusionEngine: {e}")
+        logger.error("Failed to initialize FusionEngine: %s", e)
         fusion_engine = None
 
-    print("\n" + "="*60)
-    print("🎉 AI Guardian API Ready!")
-    print("   - rPPG:", "✓" if rppg_pipeline else "✗")
-    print("   - Cry:", "✓" if cry_pipeline else "✗")
-    print("   - HeAR:", "✓" if hear_pipeline else "✗")
-    print("   - VGA:", "✓" if vga_pipeline else "✗")
-    print("   - FusionEngine:", "✓" if fusion_engine else "✗")
-    print("="*60 + "\n")
+    logger.info(
+        "AI Guardian API Ready! rPPG=%s Cry=%s HeAR=%s VGA=%s Fusion=%s",
+        bool(rppg_pipeline), bool(cry_pipeline), bool(hear_pipeline),
+        bool(vga_pipeline), bool(fusion_engine),
+    )
 
 
 @app.on_event("shutdown")
@@ -132,7 +136,7 @@ async def shutdown_event():
     global executor
     if executor:
         executor.shutdown(wait=False)
-    print("👋 AI Guardian API shutdown")
+    logger.info("AI Guardian API shutdown")
 
 
 @app.get("/health", response_model=HealthResponse)
@@ -183,48 +187,45 @@ async def process_frames_endpoint(request: FrameBatchRequest):
                 "heart_rate": None,
                 "signal_quality": 0.0
             }
-        
+
         # Decode all frames
         frames_list: List[np.ndarray] = []
         for i, frame_str in enumerate(request.frames):
             try:
-                # Remove data URL prefix if present
                 if "," in frame_str:
                     frame_str = frame_str.split(",", 1)[1]
-                
+
                 frame_data = base64.b64decode(frame_str)
                 nparr = np.frombuffer(frame_data, np.uint8)
                 frame = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
-                
+
                 if frame is not None:
                     frames_list.append(frame)
             except Exception as e:
-                print(f"Error decoding frame {i}: {e}")
+                logger.warning("Error decoding frame %d: %s", i, e)
                 continue
-        
+
         if len(frames_list) == 0:
             return {
                 "error": "No valid frames decoded",
                 "heart_rate": None,
                 "signal_quality": 0.0
             }
-        
-        print(f"📊 Processing {len(frames_list)} frames via batch endpoint...")
-        
-        # Convert to numpy array
+
+        logger.info("Processing %d frames via batch endpoint...", len(frames_list))
+
         frames_array = np.array(frames_list)
-        print(f"🔍 Frame array shape: {frames_array.shape}, dtype: {frames_array.dtype}")
-        
-        # Process in background thread
+        logger.debug("Frame array shape: %s, dtype: %s", frames_array.shape, frames_array.dtype)
+
         loop = asyncio.get_running_loop()
         result = await loop.run_in_executor(
             executor,
             process_frames_batch,
             frames_array
         )
-        
+
         if result:
-            print(f"✓ HR: {result.get('heart_rate', 'N/A')} BPM, SQI: {result.get('signal_quality', 0):.2f}")
+            logger.info("HR: %s BPM, SQI: %.2f", result.get('heart_rate', 'N/A'), result.get('signal_quality', 0))
             return result
         else:
             return {
@@ -232,11 +233,9 @@ async def process_frames_endpoint(request: FrameBatchRequest):
                 "heart_rate": None,
                 "signal_quality": 0.0
             }
-        
+
     except Exception as e:
-        print(f"❌ Error in batch processing: {e}")
-        import traceback
-        traceback.print_exc()
+        logger.error("Error in batch processing: %s", e, exc_info=True)
         return {
             "error": str(e),
             "heart_rate": None,
@@ -251,77 +250,70 @@ async def websocket_rppg_endpoint(websocket: WebSocket):
     Collects frames in buffer and processes in batches
     """
     await websocket.accept()
-    print("📹 Client connected to rPPG WebSocket")
-    
+    logger.info("Client connected to rPPG WebSocket")
+
     frame_buffer: List[np.ndarray] = []
-    batch_frame_count = 0  # Frames in current batch (resets after processing)
-    batch_start_time = None  # Track when current batch started
-    last_progress_time = None  # Track when we last sent progress update
-    frames_since_overlap = 0  # Track NEW frames added (excluding overlap)
-    BUFFER_SIZE = 300  # 10 seconds at 30 FPS (minimum for good rPPG signal)
-    OVERLAP_SIZE = 30  # Frames kept from previous batch
-    EXPECTED_DURATION_SECONDS = 30  # 300 frames at 10 FPS from frontend
-    
+    batch_frame_count = 0
+    batch_start_time = None
+    last_progress_time = None
+    frames_since_overlap = 0
+    BUFFER_SIZE = 300
+    OVERLAP_SIZE = 30
+    EXPECTED_DURATION_SECONDS = 30
+
     try:
         while True:
-            # Receive frame from client
             data = await websocket.receive_json()
-            
+
             if "frame" not in data:
                 continue
-            
-            # Decode base64 frame
+
             try:
                 frame_str = data["frame"]
                 if "," in frame_str:
                     frame_str = frame_str.split(",", 1)[1]
-                
+
                 frame_data = base64.b64decode(frame_str)
                 if len(frame_data) == 0:
                     continue
-                
+
                 nparr = np.frombuffer(frame_data, np.uint8)
                 frame = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
-                
+
                 if frame is None:
                     continue
             except Exception as e:
-                print(f"Error decoding frame: {e}")
+                logger.warning("Error decoding WebSocket frame: %s", e)
                 continue
-            
-            # Initialize batch timer on first frame of new batch
+
             if batch_start_time is None:
                 batch_start_time = time.time()
                 last_progress_time = batch_start_time
-                frames_since_overlap = 0  # Reset counter for new batch
-            
+                frames_since_overlap = 0
+
             batch_frame_count += 1
             frames_since_overlap += 1
             frame_buffer.append(frame)
-            
+
             if batch_frame_count == 1:
-                print(f"✓ First frame received: {frame.shape}")
-            
+                logger.debug("First frame received: %s", frame.shape)
+
             # Process when buffer is full
             if len(frame_buffer) >= BUFFER_SIZE:
-                print(f"📊 Processing {len(frame_buffer)} frames...")
-                
+                logger.info("Processing %d buffered frames...", len(frame_buffer))
+
                 try:
-                    # Convert to numpy array (frames already in BGR from cv2.imdecode)
                     frames_array = np.array(frame_buffer)
-                    
-                    print(f"🔍 Frame array shape: {frames_array.shape}, dtype: {frames_array.dtype}")
-                    
-                    # Process in background thread
+
                     loop = asyncio.get_running_loop()
                     result = await loop.run_in_executor(
                         executor,
                         process_frames_batch,
                         frames_array
                     )
-                    
+
                     if result:
-                        print(f"✓ HR: {result.get('heart_rate', 'N/A')} BPM, SQI: {result.get('signal_quality', 0):.2f}")
+                        logger.info("HR: %s BPM, SQI: %.2f", result.get('heart_rate', 'N/A'), result.get('signal_quality', 0))
                         await websocket.send_json(result)
                     else:
                         await websocket.send_json({
@@ -329,27 +321,21 @@ async def websocket_rppg_endpoint(websocket: WebSocket):
                             "message": "Processing...",
                             "frame_count": batch_frame_count
                         })
-                    
-                    # Keep last 30 frames for overlap and reset counters
+
                     frame_buffer = frame_buffer[-OVERLAP_SIZE:]
-                    batch_frame_count = OVERLAP_SIZE  # Reset to overlap frame count
-                    batch_start_time = None  # Reset timer for next batch
+                    batch_frame_count = OVERLAP_SIZE
+                    batch_start_time = None
                     last_progress_time = None
                     frames_since_overlap = 0
-                    
+
                 except Exception as e:
-                    print(f"❌ Error processing buffer: {e}")
-                    import traceback
-                    traceback.print_exc()
-            
-            # Send progress update every 1 second (based on elapsed time, not frame count)
+                    logger.error("Error processing buffer: %s", e, exc_info=True)
+
+            # Send progress update every 1 second
             else:
                 current_time = time.time()
                 if last_progress_time and (current_time - last_progress_time) >= 1.0:
                     seconds_elapsed = int(current_time - batch_start_time)
-                    # We need BUFFER_SIZE - OVERLAP_SIZE new frames for a complete batch
-                    frames_needed = BUFFER_SIZE - OVERLAP_SIZE
-                    # Only show progress while collecting (don't go past expected duration)
                     if seconds_elapsed <= EXPECTED_DURATION_SECONDS:
                         await websocket.send_json({
                             "signal_quality": 0.0,
@@ -357,13 +343,11 @@ async def websocket_rppg_endpoint(websocket: WebSocket):
                             "frame_count": batch_frame_count
                         })
                         last_progress_time = current_time
-            
+
     except WebSocketDisconnect:
-        print("📹 Client disconnected from rPPG WebSocket")
+        logger.info("Client disconnected from rPPG WebSocket")
     except Exception as e:
-        print(f"❌ WebSocket error: {e}")
-        import traceback
-        traceback.print_exc()
+        logger.error("WebSocket error: %s", e, exc_info=True)
 
 
 # Helper Functions for Video Processing
@@ -374,7 +358,6 @@ def decode_frames(frame_strings: List[str]) -> Optional[np.ndarray]:
         frames_list = []
         for i, frame_str in enumerate(frame_strings):
             try:
-                # Remove data URL prefix if present
                 if "," in frame_str:
                     frame_str = frame_str.split(",", 1)[1]
 
@@ -385,7 +368,7 @@ def decode_frames(frame_strings: List[str]) -> Optional[np.ndarray]:
                 if frame is not None:
                     frames_list.append(frame)
             except Exception as e:
-                print(f"⚠️ Error decoding frame {i}: {e}")
+                logger.warning("Error decoding frame %d: %s", i, e)
                 continue
 
         if len(frames_list) == 0:
@@ -393,34 +376,28 @@ def decode_frames(frame_strings: List[str]) -> Optional[np.ndarray]:
 
         return np.array(frames_list)
     except Exception as e:
-        print(f"❌ Error in decode_frames: {e}")
+        logger.error("Error in decode_frames: %s", e)
         return None
 
 
 def decode_audio(audio_string: str) -> Optional[np.ndarray]:
     """Decode base64 audio WAV to numpy array"""
     try:
-        # Remove data URL prefix if present
         if "," in audio_string:
             audio_string = audio_string.split(",", 1)[1]
 
-        # Decode base64 to bytes
         audio_bytes = base64.b64decode(audio_string)
 
-        # Read WAV file from bytes
         with wave.open(io.BytesIO(audio_bytes), 'rb') as wav_file:
-            # Get audio parameters
             channels = wav_file.getnchannels()
             sample_width = wav_file.getsampwidth()
             framerate = wav_file.getframerate()
             n_frames = wav_file.getnframes()
 
-            print(f"📻 Audio: {channels}ch, {framerate}Hz, {sample_width*8}bit, {n_frames} frames")
+            logger.info("Audio: %dch, %dHz, %dbit, %d frames", channels, framerate, sample_width * 8, n_frames)
 
-            # Read audio data
             audio_data = wav_file.readframes(n_frames)
 
-            # Convert to numpy array
             if sample_width == 1:
                 dtype = np.uint8
             elif sample_width == 2:
@@ -430,22 +407,18 @@ def decode_audio(audio_string: str) -> Optional[np.ndarray]:
 
             audio_array = np.frombuffer(audio_data, dtype=dtype)
 
-            # Convert to float32 and normalize to [-1, 1]
             if dtype == np.uint8:
                 audio_array = (audio_array.astype(np.float32) - 128) / 128.0
             else:
                 audio_array = audio_array.astype(np.float32) / float(np.iinfo(dtype).max)
 
-            # Convert stereo to mono if needed
             if channels == 2:
                 audio_array = audio_array.reshape(-1, 2).mean(axis=1)
 
             return audio_array
 
     except Exception as e:
-        print(f"❌ Error decoding audio: {e}")
-        import traceback
-        traceback.print_exc()
+        logger.error("Error decoding audio: %s", e, exc_info=True)
         return None
 
 
@@ -455,7 +428,6 @@ def decode_images(image_strings: List[str]) -> Optional[List[np.ndarray]]:
         images = []
         for i, img_str in enumerate(image_strings):
             try:
-                # Remove data URL prefix if present
                 if "," in img_str:
                     img_str = img_str.split(",", 1)[1]
 
@@ -466,7 +438,7 @@ def decode_images(image_strings: List[str]) -> Optional[List[np.ndarray]]:
                 if img is not None:
                     images.append(img)
             except Exception as e:
-                print(f"⚠️ Error decoding image {i}: {e}")
+                logger.warning("Error decoding image %d: %s", i, e)
                 continue
 
         if len(images) == 0:
@@ -474,7 +446,7 @@ def decode_images(image_strings: List[str]) -> Optional[List[np.ndarray]]:
 
         return images
     except Exception as e:
-        print(f"❌ Error in decode_images: {e}")
+        logger.error("Error in decode_images: %s", e)
         return None
 
 
@@ -487,15 +459,13 @@ async def process_video_endpoint(request: VideoProcessRequest):
     start_time = time.time()
 
     try:
-        print("\n" + "="*60)
-        print("📹 New video processing request received")
-        print(f"   Frames: {len(request.video_frames)}")
-        print(f"   Screenshots: {len(request.screenshots)}")
-        print(f"   Metadata: {request.metadata}")
-        print("="*60)
+        logger.info(
+            "New video processing request: %d frames, %d screenshots, metadata=%s",
+            len(request.video_frames), len(request.screenshots), request.metadata,
+        )
 
         # Decode all inputs
-        print("\n🔄 Decoding inputs...")
+        logger.info("Decoding inputs...")
         frames_array = decode_frames(request.video_frames)
         audio_array = decode_audio(request.audio_data)
         screenshots_list = decode_images(request.screenshots)
@@ -507,23 +477,21 @@ async def process_video_endpoint(request: VideoProcessRequest):
         if screenshots_list is None:
             return {"error": "Failed to decode screenshots"}
 
-        print(f"✓ Decoded: {frames_array.shape} frames, {audio_array.shape} audio, {len(screenshots_list)} screenshots")
+        logger.info(
+            "Decoded: %s frames, %s audio, %d screenshots",
+            frames_array.shape, audio_array.shape, len(screenshots_list),
+        )
 
         # Process all pipelines in parallel
-        print("\n⚡ Processing with all pipelines in parallel...")
+        logger.info("Processing with all pipelines in parallel...")
         loop = asyncio.get_running_loop()
 
-        # Run all pipelines concurrently
         results = await asyncio.gather(
-            # rPPG: Video frames
             loop.run_in_executor(executor, process_rppg, frames_array),
-            # Cry: Audio
             loop.run_in_executor(executor, process_cry, audio_array),
-            # HeAR: Audio
             loop.run_in_executor(executor, process_hear, audio_array),
-            # VGA: Screenshots
             loop.run_in_executor(executor, process_vga, screenshots_list),
-            return_exceptions=True  # Don't fail if one pipeline errors
+            return_exceptions=True
         )
 
         rppg_result, cry_result, hear_result, vga_result = results
@@ -531,7 +499,7 @@ async def process_video_endpoint(request: VideoProcessRequest):
         # Generate AI-powered triage report using FusionEngine
         triage_report = None
         if fusion_engine and fusion_engine.is_initialized:
-            print("\n🧠 Generating AI triage report with FusionEngine...")
+            logger.info("Generating AI triage report with FusionEngine...")
             try:
                 triage_report = fusion_engine.fuse(
                     hear_result=hear_result if not isinstance(hear_result, Exception) else None,
@@ -542,11 +510,9 @@ async def process_video_endpoint(request: VideoProcessRequest):
                     patient_sex=request.patient_sex,
                     parent_notes=request.parent_notes
                 )
-                print(f"✓ Triage report generated: {triage_report.priority.value}")
+                logger.info("Triage report generated: %s", triage_report.priority.value)
             except Exception as e:
-                print(f"⚠️ FusionEngine error: {e}")
-                import traceback
-                traceback.print_exc()
+                logger.error("FusionEngine error: %s", e, exc_info=True)
 
         # Build response
         processing_time_ms = (time.time() - start_time) * 1000
@@ -560,7 +526,6 @@ async def process_video_endpoint(request: VideoProcessRequest):
             "timestamp": datetime.now().isoformat()
         }
 
-        # Add triage report if available
         if triage_report:
             response["triage"] = {
                 "priority_level": triage_report.priority.value,
@@ -572,16 +537,12 @@ async def process_video_endpoint(request: VideoProcessRequest):
                 "timestamp": triage_report.timestamp.isoformat()
             }
 
-        print(f"\n✅ Processing complete in {processing_time_ms:.0f}ms")
-        print("="*60 + "\n")
+        logger.info("Processing complete in %.0fms", processing_time_ms)
 
         return response
 
     except Exception as e:
-        print(f"\n❌ Error processing video: {e}")
-        import traceback
-        traceback.print_exc()
-        print("="*60 + "\n")
+        logger.error("Error processing video: %s", e, exc_info=True)
         return {
             "error": str(e),
             "processing_time_ms": (time.time() - start_time) * 1000,
@@ -594,20 +555,16 @@ def process_rppg(frames: np.ndarray) -> Optional[Dict[str, Any]]:
     global rppg_pipeline
     try:
         if not rppg_pipeline or not rppg_pipeline.is_initialized:
-            print("⚠️ rPPG pipeline not initialized")
+            logger.warning("rPPG pipeline not initialized")
             return None
 
-        print(f"📊 Processing rPPG with frames shape: {frames.shape}, dtype: {frames.dtype}")
+        logger.info("Processing rPPG: frames shape=%s, dtype=%s", frames.shape, frames.dtype)
         result = rppg_pipeline.process(frames)
-        print(f"📊 rPPG result type: {type(result)}")
-        if hasattr(result, 'data'):
-            print(f"📊 rPPG result.data keys: {result.data.keys() if result.data else 'empty'}")
-            print(f"📊 rPPG result.data: {result.data}")
+        if hasattr(result, 'data') and result.data:
+            logger.info("rPPG result: %s", {k: v for k, v in result.data.items() if k != 'embedding'})
         return result
     except Exception as e:
-        print(f"❌ rPPG error: {e}")
-        import traceback
-        traceback.print_exc()
+        logger.error("rPPG error: %s", e, exc_info=True)
         return None
 
 
@@ -616,12 +573,13 @@ def process_cry(audio: np.ndarray) -> Optional[Dict[str, Any]]:
     global cry_pipeline
     try:
         if not cry_pipeline or not cry_pipeline.is_initialized:
+            logger.warning("Cry pipeline not initialized")
             return None
 
         result = cry_pipeline.process(audio)
         return result
     except Exception as e:
-        print(f"❌ Cry error: {e}")
+        logger.error("Cry error: %s", e)
         return None
 
 
@@ -630,12 +588,13 @@ def process_hear(audio: np.ndarray) -> Optional[Dict[str, Any]]:
     global hear_pipeline
     try:
         if not hear_pipeline or not hear_pipeline.is_initialized:
+            logger.warning("HeAR pipeline not initialized")
             return None
 
         result = hear_pipeline.process(audio)
         return result
     except Exception as e:
-        print(f"❌ HeAR error: {e}")
+        logger.error("HeAR error: %s", e)
         return None
 
 
@@ -644,12 +603,13 @@ def process_vga(screenshots: List[np.ndarray]) -> Optional[Dict[str, Any]]:
     global vga_pipeline
     try:
         if not vga_pipeline or not vga_pipeline.is_initialized:
+            logger.warning("VGA pipeline not initialized")
             return None
 
         result = vga_pipeline.process_batch(screenshots)
         return result
     except Exception as e:
-        print(f"❌ VGA error: {e}")
+        logger.error("VGA error: %s", e)
         return None
 
 
@@ -675,10 +635,8 @@ def format_pipeline_result(result) -> Dict[str, Any]:
         return {"error": "Pipeline not available"}
 
     if hasattr(result, 'data'):
-        # It's a PipelineResult object - convert numpy arrays to lists
         return convert_numpy_to_list(result.data)
     elif isinstance(result, dict):
-        # Already a dictionary - still need to convert numpy arrays
         return convert_numpy_to_list(result)
     else:
         return {"error": "Invalid result format"}
@@ -690,18 +648,14 @@ def process_frames_batch(frames: np.ndarray) -> Optional[Dict[str, Any]]:
     Runs in background thread to avoid blocking
     """
     global rppg_pipeline
-    
+
     try:
         if not rppg_pipeline or not rppg_pipeline.is_initialized:
-            print("❌ Pipeline not ready")
+            logger.warning("Pipeline not ready for batch processing")
             return None
-        
-        # Process frames with pre-initialized pipeline
+
         result = rppg_pipeline.process(frames)
-        
-        print(f"📋 Pipeline result: {result}")
-        print(f"📋 Result data: {result.data if result else 'None'}")
-        
+
         if result and result.data:
             response = {
                 "heart_rate": result.data.get('heart_rate'),
@@ -709,10 +663,9 @@ def process_frames_batch(frames: np.ndarray) -> Optional[Dict[str, Any]]:
                 "respiratory_rate": result.data.get('respiratory_rate'),
                 "timestamp": datetime.now().isoformat()
             }
-            
-            print(f"✓ Built response: HR={response.get('heart_rate')}, SQI={response.get('signal_quality')}")
-            
-            # Add HRV if available
+
+            logger.debug("Built response: HR=%s, SQI=%s", response.get('heart_rate'), response.get('signal_quality'))
+
             hrv = result.data.get('heart_rate_variability', {})
             if hrv:
                 response["hrv"] = {
@@ -720,27 +673,18 @@ def process_frames_batch(frames: np.ndarray) -> Optional[Dict[str, Any]]:
                     "rmssd": hrv.get('rmssd', 0),
                     "lf_hf": hrv.get('LF/HF', 0)
                 }
-            
+
             return response
-        
-        print("⚠️ No result data returned")
+
+        logger.warning("No result data returned from rPPG")
         return None
-        
+
     except Exception as e:
-        print(f"Error in batch processing: {e}")
-        import traceback
-        traceback.print_exc()
+        logger.error("Error in batch processing: %s", e, exc_info=True)
         return None
 
 
 if __name__ == "__main__":
     import uvicorn
-    print("\n" + "="*60)
-    print("🩺 AI GUARDIAN API SERVER")
-    print("="*60)
-    print("\nStarting on http://localhost:8000")
-    print("WebSocket endpoint: ws://localhost:8000/ws/rppg")
-    print("Docs: http://localhost:8000/docs")
-    print("\nPress Ctrl+C to stop\n")
-    
+    logger.info("Starting AI Guardian API Server on http://localhost:8000")
     uvicorn.run(app, host="0.0.0.0", port=8000, log_level="info")
