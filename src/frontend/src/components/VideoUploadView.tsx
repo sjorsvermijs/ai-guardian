@@ -1,7 +1,9 @@
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { processVideo } from '../utils/videoProcessor';
 import type { ProcessedVideoData } from '../utils/videoProcessor';
 import './VideoUploadView.css';
+
+const API_BASE = import.meta.env.VITE_API_URL?.replace('/api/process-video', '') || 'http://localhost:8000';
 
 interface VitalSigns {
   heart_rate?: number;
@@ -88,6 +90,23 @@ export function VideoUploadView({ onError }: VideoUploadViewProps) {
   const [patientAge, setPatientAge] = useState<string>('');
   const [patientSex, setPatientSex] = useState<string>('');
   const [parentNotes, setParentNotes] = useState<string>('');
+
+  // Backend readiness
+  const [backendReady, setBackendReady] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    const checkBackend = async () => {
+      try {
+        const res = await fetch(`${API_BASE}/health`);
+        if (res.ok && !cancelled) setBackendReady(true);
+      } catch {
+        if (!cancelled) setTimeout(checkBackend, 2000);
+      }
+    };
+    checkBackend();
+    return () => { cancelled = true; };
+  }, []);
 
   const handleFileSelect = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -304,9 +323,9 @@ export function VideoUploadView({ onError }: VideoUploadViewProps) {
                 <button
                   className="btn btn-primary process-button"
                   onClick={handleProcessVideo}
-                  disabled={isExtracting || isUploading}
+                  disabled={isExtracting || isUploading || !backendReady}
                 >
-                  Process Video
+                  {backendReady ? 'Process Video' : 'Backend loading models...'}
                 </button>
               </div>
             )}
