@@ -325,7 +325,7 @@ export function VideoUploadView({ onError }: VideoUploadViewProps) {
                   onClick={handleProcessVideo}
                   disabled={isExtracting || isUploading || !backendReady}
                 >
-                  {backendReady ? 'Process Video' : 'Backend loading models...'}
+                  {backendReady ? 'Process Video' : 'Loading models...'}
                 </button>
               </div>
             )}
