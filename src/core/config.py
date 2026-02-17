@@ -77,6 +77,14 @@ class Config:
             'min_confidence': 0.6,
             'cross_validation_enabled': True
         }
+
+        # Clinical Guidelines Configuration
+        self.guidelines_config = {
+            'enabled': True,
+            'max_results': 4,
+            'max_prompt_tokens': 300,
+            'sources': ['nice_ng143', 'who_imci', 'pews'],
+        }
         
         # Data processing
         self.data_config = {
@@ -105,7 +113,8 @@ class Config:
             'medgemma_vqa': self.vqa_config,
             'vqa': self.vqa_config,
             'vga': self.vga_config,
-            'cry': self.cry_config
+            'cry': self.cry_config,
+            'guidelines': self.guidelines_config
         }
         return config_map.get(pipeline_name.lower(), {})
     

@@ -76,10 +76,23 @@ class FusionEngine:
         self.medgemma_tokenizer = None
         self.use_medgemma = self.config.get('use_medgemma', True) and MEDGEMMA_AVAILABLE
 
+        # Clinical guidelines retrieval
+        self.guideline_store = None
+
     def initialize(self):
         """Initialize the fusion engine and load MedGemma model"""
         if self.use_medgemma:
             self._initialize_medgemma()
+
+        # Initialize clinical guidelines store (instant, no model loading)
+        try:
+            from .guidelines.store import GuidelineStore
+            self.guideline_store = GuidelineStore()
+            self.guideline_store.initialize()
+        except Exception as e:
+            logger.warning("GuidelineStore failed to load: %s", e)
+            self.guideline_store = None
+
         self.is_initialized = True
 
     def _initialize_medgemma(self):
@@ -147,11 +160,28 @@ class FusionEngine:
             patient_age, patient_sex, parent_notes
         )
 
+        # Retrieve relevant clinical guidelines
+        guideline_context = ""
+        guideline_ids = []
+        if self.guideline_store and self.guideline_store.is_loaded:
+            try:
+                from .guidelines.store import GuidelineStore
+                query = GuidelineStore.build_query(
+                    vital_signs, acoustic_indicators, patient_age
+                )
+                guideline_results = self.guideline_store.retrieve(query, max_results=4)
+                guideline_context = self.guideline_store.format_for_prompt(guideline_results)
+                guideline_ids = [r.chunk.id for r in guideline_results]
+            except Exception as e:
+                logger.warning("Guideline retrieval failed: %s", e)
+
         # Let MedGemma handle all clinical reasoning
         if self.use_medgemma and self.medgemma_model:
-            triage = self._medgemma_clinical_reasoning(clinical_data)
+            triage = self._medgemma_clinical_reasoning(clinical_data, guideline_context)
         else:
-            triage = self._fallback_clinical_reasoning(vital_signs, acoustic_indicators)
+            triage = self._fallback_clinical_reasoning(
+                vital_signs, acoustic_indicators, guideline_context
+            )
 
         priority = triage['priority']
         critical_alerts = triage['critical_alerts']
@@ -186,11 +216,12 @@ class FusionEngine:
                 'vga': vqa_result
             },
             metadata={
-                'fusion_engine_version': '0.2.0',
+                'fusion_engine_version': '0.3.0',
                 'num_pipelines_active': len(confidences),
                 'weights_used': self.weights,
                 'medgemma_enabled': self.use_medgemma and self.medgemma_model is not None,
-                'reasoning_mode': 'medgemma' if (self.use_medgemma and self.medgemma_model) else 'fallback'
+                'reasoning_mode': 'medgemma' if (self.use_medgemma and self.medgemma_model) else 'fallback',
+                'guidelines_retrieved': guideline_ids,
             }
         )
 
@@ -282,31 +313,51 @@ class FusionEngine:
 
         return "\n".join(parts)
 
-    def _medgemma_clinical_reasoning(self, clinical_data: str) -> Dict[str, Any]:
+    def _medgemma_clinical_reasoning(self, clinical_data: str,
+                                     guideline_context: str = "") -> Dict[str, Any]:
         """
         Single MedGemma call that performs ALL clinical reasoning:
         priority, alerts, recommendations, parent message, specialist message.
         """
         try:
+            system_content = (
+                "You are a pediatric triage AI. Given multi-modal sensor data from an infant "
+                "monitoring system, produce a structured clinical assessment.\n\n"
+                "INFANT NORMAL RANGES:\n"
+                "- Heart Rate: 100-160 BPM (newborns), 90-150 BPM (infants 1-12 months)\n"
+                "- Respiratory Rate: 30-60 breaths/min (newborns), 25-40 (infants 1-12 months)\n"
+                "- SpO2: >= 95% is normal; < 92% is concerning; < 88% is critical\n\n"
+                "IMPORTANT RULES:\n"
+                "- Refer to the baby as 'your baby' or 'the infant'. Never use placeholders like [name].\n"
+                "- Do NOT generate code, functions, or programming syntax.\n"
+                "- Write ONLY natural language text.\n"
+                "- If signal quality is poor, stress reduced confidence but still assess available data.\n"
+                "- Cross-validate findings: if multiple modalities agree (e.g., low SpO2 + adventitious "
+                "respiratory sounds), increase urgency."
+            )
+
+            if guideline_context:
+                system_content += (
+                    "\n\nYou have access to clinical guidelines below. In your SPECIALIST MESSAGE, "
+                    "cite relevant guidelines and thresholds when they support your findings. "
+                    "Use [Guideline Name] format for citations. Do NOT cite guidelines in the "
+                    "PARENT MESSAGE.\n\n"
+                    + guideline_context
+                )
+
+            specialist_instruction = (
+                "<Clinical note (max 200 words) using medical terminology. "
+                "Include: findings summary, clinical significance with pediatric normal ranges, "
+                "differential considerations, and recommended follow-up."
+            )
+            if guideline_context:
+                specialist_instruction += (
+                    " Reference applicable clinical guidelines with specific thresholds."
+                )
+            specialist_instruction += " No markdown formatting.>"
+
             messages = [
-                {
-                    "role": "system",
-                    "content": (
-                        "You are a pediatric triage AI. Given multi-modal sensor data from an infant "
-                        "monitoring system, produce a structured clinical assessment.\n\n"
-                        "INFANT NORMAL RANGES:\n"
-                        "- Heart Rate: 100-160 BPM (newborns), 90-150 BPM (infants 1-12 months)\n"
-                        "- Respiratory Rate: 30-60 breaths/min (newborns), 25-40 (infants 1-12 months)\n"
-                        "- SpO2: >= 95% is normal; < 92% is concerning; < 88% is critical\n\n"
-                        "IMPORTANT RULES:\n"
-                        "- Refer to the baby as 'your baby' or 'the infant'. Never use placeholders like [name].\n"
-                        "- Do NOT generate code, functions, or programming syntax.\n"
-                        "- Write ONLY natural language text.\n"
-                        "- If signal quality is poor, stress reduced confidence but still assess available data.\n"
-                        "- Cross-validate findings: if multiple modalities agree (e.g., low SpO2 + adventitious "
-                        "respiratory sounds), increase urgency."
-                    )
-                },
+                {"role": "system", "content": system_content},
                 {
                     "role": "user",
                     "content": (
@@ -316,17 +367,17 @@ class FusionEngine:
                         "PRIORITY: <one of CRITICAL, URGENT, MODERATE, LOW>\n\n"
                         "ALERTS:\n"
                         "- <each concerning finding on its own line, or 'None' if nothing concerning>\n\n"
-                        "RECOMMENDATIONS:\n"
-                        "- <each recommendation on its own line>\n\n"
                         "---SEPARATOR---\n\n"
                         "PARENT MESSAGE:\n"
-                        "<A reassuring message for parents in simple language (max 100 words). "
-                        "Explain findings and what to do next. No headers or bullet points, just paragraphs.>\n\n"
+                        "<A message for parents in VERY simple everyday language (max 120 words). "
+                        "Do NOT use any medical terms like SpO2, respiratory rate, tachycardia, saturation, etc. "
+                        "Instead say 'breathing', 'heart rate', 'oxygen levels'. "
+                        "Explain what you found in 2-3 short sentences, then end with 1-2 simple next steps "
+                        "(like 'keep an eye on your baby' or 'call your doctor'). "
+                        "No headers, no bullet points, just short paragraphs.>\n\n"
                         "---SEPARATOR---\n\n"
                         "SPECIALIST MESSAGE:\n"
-                        "<Brief clinical note (max 150 words) using medical terminology. "
-                        "Include: findings summary, clinical significance with pediatric normal ranges, "
-                        "differential considerations, and recommended follow-up. No markdown formatting.>"
+                        + specialist_instruction
                     )
                 }
             ]
@@ -336,7 +387,7 @@ class FusionEngine:
                 self.medgemma_model,
                 self.medgemma_tokenizer,
                 prompt=prompt,
-                max_tokens=450,
+                max_tokens=650,
                 verbose=False
             )
             result = self._clean_llm_output(result)
@@ -363,7 +414,7 @@ class FusionEngine:
                 priority = TriagePriority(priority_str)
 
         # Extract alerts
-        alerts_match = re.search(r'ALERTS:\s*\n(.*?)(?=\nRECOMMENDATIONS:)', text, re.DOTALL | re.IGNORECASE)
+        alerts_match = re.search(r'ALERTS:\s*\n(.*?)(?=---SEPARATOR---|RECOMMENDATIONS:|$)', text, re.DOTALL | re.IGNORECASE)
         if alerts_match:
             alerts_text = alerts_match.group(1).strip()
             if alerts_text.lower() != 'none':
@@ -371,15 +422,6 @@ class FusionEngine:
                     line = line.strip().lstrip('- ').strip()
                     if line and line.lower() != 'none':
                         critical_alerts.append(line)
-
-        # Extract recommendations
-        recs_match = re.search(r'RECOMMENDATIONS:\s*\n(.*?)(?=---SEPARATOR---|$)', text, re.DOTALL | re.IGNORECASE)
-        if recs_match:
-            recs_text = recs_match.group(1).strip()
-            for line in recs_text.split('\n'):
-                line = line.strip().lstrip('- ').strip()
-                if line:
-                    recommendations.append(line)
 
         # Split parent and specialist messages by separator
         parts = text.split('---SEPARATOR---')
@@ -413,7 +455,8 @@ class FusionEngine:
 
     def _fallback_clinical_reasoning(self,
                                      vital_signs: Dict[str, Any],
-                                     acoustic_indicators: Dict[str, Any]) -> Dict[str, Any]:
+                                     acoustic_indicators: Dict[str, Any],
+                                     guideline_context: str = "") -> Dict[str, Any]:
         """
         Simple rule-based fallback when MedGemma is unavailable.
         Provides basic triage without LLM reasoning.
@@ -506,6 +549,8 @@ class FusionEngine:
             "Clinical correlation recommended. "
             f"Alerts: {'; '.join(critical_alerts) if critical_alerts else 'None'}."
         )
+        if guideline_context:
+            specialist_message += f"\n\nApplicable guidelines:\n{guideline_context}"
 
         return {
             'priority': priority,
@@ -519,7 +564,8 @@ class FusionEngine:
         """Clean up LLM output by removing artifacts, code blocks, and deduplicating"""
         # Remove special tokens
         for token in ['<|assistant|>', '<|end|>', '<|sample_code>', '<|sample_code|>',
-                      '<|code|>', '<|endoftext|>', '<|im_end|>']:
+                      '<|code|>', '<|endoftext|>', '<|im_end|>', '<|separator|>',
+                      '<separator|>', '<|separator>']:
             text = text.replace(token, '')
 
         # Remove code blocks (```...```)

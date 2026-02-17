@@ -534,7 +534,8 @@ async def process_video_endpoint(request: VideoProcessRequest):
                 "parent_message": triage_report.parent_message,
                 "specialist_message": triage_report.specialist_message,
                 "confidence_score": triage_report.confidence,
-                "timestamp": triage_report.timestamp.isoformat()
+                "timestamp": triage_report.timestamp.isoformat(),
+                "guidelines_used": triage_report.metadata.get('guidelines_retrieved', []),
             }
 
         logger.info("Processing complete in %.0fms", processing_time_ms)

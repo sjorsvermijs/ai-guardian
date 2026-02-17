@@ -54,6 +54,7 @@ interface TriageReport {
   specialist_message: string;
   confidence_score: number;
   timestamp: string;
+  guidelines_used?: string[];
 }
 
 interface ProcessingResults {
@@ -401,17 +402,6 @@ export function VideoUploadView({ onError }: VideoUploadViewProps) {
                   </div>
                 )}
 
-                {results.triage.recommendations && results.triage.recommendations.length > 0 && (
-                  <div className="recommendations">
-                    <h3>Next Steps</h3>
-                    <ul>
-                      {results.triage.recommendations.map((rec, index) => (
-                        <li key={index}>{rec}</li>
-                      ))}
-                    </ul>
-                  </div>
-                )}
-
                 {/* Specialist clinical note */}
                 {results.triage.specialist_message && (
                   <details className="specialist-details">
@@ -435,8 +425,25 @@ export function VideoUploadView({ onError }: VideoUploadViewProps) {
             {/* Detailed Pipeline Results (Expandable) */}
             <details className="pipeline-details">
               <summary className="details-summary">
-                <h3>📊 View Detailed Measurements</h3>
+                <h3>📊 Details</h3>
               </summary>
+
+              {/* Guidelines Used */}
+              {results.triage?.guidelines_used && results.triage.guidelines_used.length > 0 && (
+                <div className="result-card guidelines-card" style={{ marginBottom: '16px' }}>
+                  <h3>📋 Clinical Guidelines Referenced</h3>
+                  <ul style={{ margin: '8px 0', paddingLeft: '20px', fontSize: '13px', color: 'rgba(255,255,255,0.8)' }}>
+                    {results.triage.guidelines_used.map((id, index) => (
+                      <li key={index} style={{ padding: '4px 0' }}>
+                        {id.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())}
+                      </li>
+                    ))}
+                  </ul>
+                  <p style={{ fontSize: '11px', color: 'rgba(255,255,255,0.5)', marginTop: '8px' }}>
+                    Guidelines from NICE NG143, WHO IMCI, and PEWS are matched based on the infant's age and vital signs.
+                  </p>
+                </div>
+              )}
 
             <div className="results-grid">
               {/* rPPG Results */}
