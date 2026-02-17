@@ -316,95 +316,177 @@ class FusionEngine:
     def _medgemma_clinical_reasoning(self, clinical_data: str,
                                      guideline_context: str = "") -> Dict[str, Any]:
         """
-        Single MedGemma call that performs ALL clinical reasoning:
-        priority, alerts, recommendations, parent message, specialist message.
+        Two-pass MedGemma reasoning to prevent specialist message cutoff.
+        Pass 1: Priority, alerts, and parent message (~400 tokens).
+        Pass 2: Specialist message with full guideline context (~400 tokens).
         """
         try:
-            system_content = (
-                "You are a pediatric triage AI. Given multi-modal sensor data from an infant "
-                "monitoring system, produce a structured clinical assessment.\n\n"
-                "INFANT NORMAL RANGES:\n"
-                "- Heart Rate: 100-160 BPM (newborns), 90-150 BPM (infants 1-12 months)\n"
-                "- Respiratory Rate: 30-60 breaths/min (newborns), 25-40 (infants 1-12 months)\n"
-                "- SpO2: >= 95% is normal; < 92% is concerning; < 88% is critical\n\n"
-                "IMPORTANT RULES:\n"
-                "- Refer to the baby as 'your baby' or 'the infant'. Never use placeholders like [name].\n"
-                "- Do NOT generate code, functions, or programming syntax.\n"
-                "- Write ONLY natural language text.\n"
-                "- If signal quality is poor, stress reduced confidence but still assess available data.\n"
-                "- Cross-validate findings: if multiple modalities agree (e.g., low SpO2 + adventitious "
-                "respiratory sounds), increase urgency."
+            # --- Pass 1: Parent-facing content ---
+            parent_result = self._medgemma_pass_parent(clinical_data)
+            parsed = self._parse_parent_response(parent_result)
+
+            # --- Pass 2: Specialist message (separate token budget) ---
+            specialist_message = self._medgemma_pass_specialist(
+                clinical_data, guideline_context
             )
+            parsed['specialist_message'] = specialist_message
 
-            if guideline_context:
-                system_content += (
-                    "\n\nYou have access to clinical guidelines below. In your SPECIALIST MESSAGE, "
-                    "cite relevant guidelines and thresholds when they support your findings. "
-                    "Use [Guideline Name] format for citations. Do NOT cite guidelines in the "
-                    "PARENT MESSAGE.\n\n"
-                    + guideline_context
-                )
-
-            specialist_instruction = (
-                "<Clinical note (max 200 words) using medical terminology. "
-                "Include: findings summary, clinical significance with pediatric normal ranges, "
-                "differential considerations, and recommended follow-up."
-            )
-            if guideline_context:
-                specialist_instruction += (
-                    " Reference applicable clinical guidelines with specific thresholds."
-                )
-            specialist_instruction += " No markdown formatting.>"
-
-            messages = [
-                {"role": "system", "content": system_content},
-                {
-                    "role": "user",
-                    "content": (
-                        f"{clinical_data}\n"
-                        "Based on the above data, produce your assessment in EXACTLY this format "
-                        "(use the exact headers and delimiters shown):\n\n"
-                        "PRIORITY: <one of CRITICAL, URGENT, MODERATE, LOW>\n\n"
-                        "ALERTS:\n"
-                        "- <each concerning finding on its own line, or 'None' if nothing concerning>\n\n"
-                        "---SEPARATOR---\n\n"
-                        "PARENT MESSAGE:\n"
-                        "<A message for parents in VERY simple everyday language (max 120 words). "
-                        "Do NOT use any medical terms like SpO2, respiratory rate, tachycardia, saturation, etc. "
-                        "Instead say 'breathing', 'heart rate', 'oxygen levels'. "
-                        "Explain what you found in 2-3 short sentences, then end with 1-2 simple next steps "
-                        "(like 'keep an eye on your baby' or 'call your doctor'). "
-                        "No headers, no bullet points, just short paragraphs.>\n\n"
-                        "---SEPARATOR---\n\n"
-                        "SPECIALIST MESSAGE:\n"
-                        + specialist_instruction
-                    )
-                }
-            ]
-
-            prompt = self._format_chat_prompt(messages)
-            result = generate(
-                self.medgemma_model,
-                self.medgemma_tokenizer,
-                prompt=prompt,
-                max_tokens=650,
-                verbose=False
-            )
-            result = self._clean_llm_output(result)
-
-            return self._parse_medgemma_response(result)
+            return parsed
 
         except Exception as e:
             logger.error("MedGemma clinical reasoning failed: %s", e, exc_info=True)
             return self._fallback_clinical_reasoning({}, {})
 
-    def _parse_medgemma_response(self, text: str) -> Dict[str, Any]:
-        """Parse the structured MedGemma response into components"""
+    def _medgemma_pass_parent(self, clinical_data: str) -> str:
+        """Pass 1: Generate priority, alerts, and parent message."""
+        system_content = (
+            "You are a pediatric triage AI. Given multi-modal sensor data from an infant "
+            "monitoring system, produce a structured clinical assessment.\n\n"
+            "INFANT NORMAL RANGES:\n"
+            "- Heart Rate: 100-160 BPM (newborns), 90-150 BPM (infants 1-12 months)\n"
+            "- Respiratory Rate: 30-60 breaths/min (newborns), 25-40 (infants 1-12 months)\n"
+            "- SpO2: >= 95% is normal; < 92% is concerning; < 88% is critical\n\n"
+            "IMPORTANT RULES:\n"
+            "- Refer to the baby as 'your baby' or 'the infant'. Never use placeholders like [name].\n"
+            "- Do NOT generate code, functions, or programming syntax.\n"
+            "- Write ONLY natural language text.\n"
+            "- If signal quality is poor, stress reduced confidence but still assess available data.\n"
+            "- Cross-validate findings: if multiple modalities agree (e.g., low SpO2 + adventitious "
+            "respiratory sounds), increase urgency."
+        )
+
+        # Few-shot example so MedGemma sees what a real response looks like
+        example_user = (
+            "INFANT HEALTH ASSESSMENT - Multi-Modal Analysis:\n\n"
+            "Vital Signs (via rPPG):\n- Heart Rate: 155.0 BPM\n- Respiratory Rate: 52.0 breaths/min\n"
+            "- SpO2: 94.0%\n- Signal Quality: 72.0% (Good)\n\n"
+            "Acoustic Analysis:\n- Cry Classification: discomfort (78% confidence)\n"
+            "- Respiratory Sounds: Normal (85% confidence)\n\n"
+            "Based on the above data, produce your assessment."
+        )
+        example_response = (
+            "PRIORITY: MODERATE\n\n"
+            "ALERTS:\n"
+            "- Breathing rate slightly above normal range for age\n"
+            "- Oxygen levels just below the typical healthy range\n\n"
+            "PARENT MESSAGE:\n"
+            "We checked your baby's breathing and heart rate from the video. "
+            "The breathing rate is a little faster than usual, and oxygen levels are "
+            "slightly lower than what we normally expect. This does not mean something is "
+            "wrong right now, but it is worth keeping an eye on. If your baby seems "
+            "uncomfortable, is breathing hard, or you are worried, call your doctor for advice."
+        )
+
+        messages = [
+            {"role": "system", "content": system_content},
+            {"role": "user", "content": example_user},
+            {"role": "assistant", "content": example_response},
+            {
+                "role": "user",
+                "content": (
+                    f"{clinical_data}\n"
+                    "Based on the above data, produce your assessment in the same format "
+                    "(PRIORITY, ALERTS, PARENT MESSAGE). "
+                    "The parent message must use simple everyday language (max 120 words), "
+                    "no medical terms like SpO2 or respiratory rate. "
+                    "Say 'breathing', 'heart rate', 'oxygen levels' instead."
+                )
+            }
+        ]
+
+        prompt = self._format_chat_prompt(messages)
+        result = generate(
+            self.medgemma_model,
+            self.medgemma_tokenizer,
+            prompt=prompt,
+            max_tokens=400,
+            verbose=False
+        )
+        return self._clean_llm_output(result)
+
+    def _medgemma_pass_specialist(self, clinical_data: str,
+                                  guideline_context: str = "") -> str:
+        """Pass 2: Generate specialist message with dedicated token budget."""
+        system_content = (
+            "You are a pediatric clinical specialist. Write a concise clinical note "
+            "based on the sensor data provided. Use medical terminology appropriate "
+            "for healthcare professionals.\n\n"
+            "INFANT NORMAL RANGES:\n"
+            "- Heart Rate: 100-160 BPM (newborns), 90-150 BPM (infants 1-12 months)\n"
+            "- Respiratory Rate: 30-60 breaths/min (newborns), 25-40 (infants 1-12 months)\n"
+            "- SpO2: >= 95% is normal; < 92% is concerning; < 88% is critical\n\n"
+            "RULES:\n"
+            "- Do NOT generate code or programming syntax.\n"
+            "- Write ONLY a clinical note in natural language.\n"
+            "- No markdown formatting.\n"
+            "- Refer to the patient as 'the infant'."
+        )
+
+        if guideline_context:
+            system_content += (
+                "\n\nCite the clinical guidelines below when they support your findings. "
+                "Use [Guideline Name] format for citations.\n\n"
+                + guideline_context
+            )
+
+        # Few-shot example for specialist note
+        example_specialist_user = (
+            "INFANT HEALTH ASSESSMENT - Multi-Modal Analysis:\n\n"
+            "Vital Signs (via rPPG):\n- Heart Rate: 155.0 BPM\n- Respiratory Rate: 52.0 breaths/min\n"
+            "- SpO2: 94.0%\n- Signal Quality: 72.0% (Good)\n\n"
+            "Acoustic Analysis:\n- Cry Classification: discomfort (78% confidence)\n"
+            "- Respiratory Sounds: Normal (85% confidence)\n\n"
+            "Write a clinical note (max 200 words)."
+        )
+        example_specialist_response = (
+            "Clinical assessment of infant via contactless multi-modal monitoring. "
+            "rPPG-derived vital signs show HR 155 bpm (within normal limits for age), "
+            "RR 52 breaths/min (elevated above the 30-40 normal range for infants 1-12 months), "
+            "and SpO2 94% (borderline, just below the 95% threshold). Signal quality acceptable at 72%. "
+            "Acoustic analysis reveals discomfort-type cry pattern (78% confidence) without adventitious "
+            "respiratory sounds. The combination of mild tachypnea and borderline oxygen saturation "
+            "warrants monitoring for evolving lower respiratory tract pathology. Differential includes "
+            "early bronchiolitis, viral URI with reactive airway component, or physiological variation "
+            "in the context of crying. Recommend repeat assessment in 1-2 hours, clinical correlation "
+            "with temperature and feeding history, and low threshold for in-person evaluation if "
+            "symptoms persist or worsen."
+        )
+
+        specialist_instruction = (
+            "Write a clinical note (max 200 words) covering: "
+            "findings summary, clinical significance with pediatric normal ranges, "
+            "differential considerations, and recommended follow-up."
+        )
+        if guideline_context:
+            specialist_instruction += (
+                " Reference applicable clinical guidelines with specific thresholds."
+            )
+
+        messages = [
+            {"role": "system", "content": system_content},
+            {"role": "user", "content": example_specialist_user},
+            {"role": "assistant", "content": example_specialist_response},
+            {
+                "role": "user",
+                "content": f"{clinical_data}\n{specialist_instruction}"
+            }
+        ]
+
+        prompt = self._format_chat_prompt(messages)
+        result = generate(
+            self.medgemma_model,
+            self.medgemma_tokenizer,
+            prompt=prompt,
+            max_tokens=400,
+            verbose=False
+        )
+        return self._clean_llm_output(result)
+
+    def _parse_parent_response(self, text: str) -> Dict[str, Any]:
+        """Parse the parent-facing MedGemma response (Pass 1) into components."""
         priority = TriagePriority.MODERATE
         critical_alerts = []
-        recommendations = []
         parent_message = ""
-        specialist_message = ""
 
         # Extract priority
         priority_match = re.search(r'PRIORITY:\s*(CRITICAL|URGENT|MODERATE|LOW)', text, re.IGNORECASE)
@@ -413,45 +495,35 @@ class FusionEngine:
             if priority_str in VALID_PRIORITIES:
                 priority = TriagePriority(priority_str)
 
-        # Extract alerts
-        alerts_match = re.search(r'ALERTS:\s*\n(.*?)(?=---SEPARATOR---|RECOMMENDATIONS:|$)', text, re.DOTALL | re.IGNORECASE)
+        # Extract alerts (everything between ALERTS: and PARENT MESSAGE:)
+        alerts_match = re.search(
+            r'ALERTS:\s*\n(.*?)(?=PARENT\s*MESSAGE:|$)', text, re.DOTALL | re.IGNORECASE
+        )
         if alerts_match:
             alerts_text = alerts_match.group(1).strip()
             if alerts_text.lower() != 'none':
                 for line in alerts_text.split('\n'):
                     line = line.strip().lstrip('- ').strip()
-                    if line and line.lower() != 'none':
+                    # Skip empty, 'none', and echoed template text
+                    if (line and line.lower() != 'none'
+                            and not line.startswith('<')
+                            and 'each concerning' not in line.lower()):
                         critical_alerts.append(line)
 
-        # Split parent and specialist messages by separator
-        parts = text.split('---SEPARATOR---')
-        if len(parts) >= 3:
-            # parts[0] = priority/alerts/recs, parts[1] = parent msg, parts[2] = specialist msg
-            parent_message = self._extract_message_body(parts[1], 'PARENT MESSAGE:')
-            specialist_message = self._extract_message_body(parts[2], 'SPECIALIST MESSAGE:')
-        elif len(parts) == 2:
-            parent_message = self._extract_message_body(parts[1], 'PARENT MESSAGE:')
-
-        # Ensure we have at least basic recommendations if none were parsed
-        if not recommendations:
-            recommendations = ["Continue monitoring and consult your healthcare provider if concerned."]
+        # Extract parent message
+        parent_match = re.search(
+            r'PARENT\s*MESSAGE:\s*\n?(.*)', text, re.DOTALL | re.IGNORECASE
+        )
+        if parent_match:
+            parent_message = parent_match.group(1).strip()
 
         return {
             'priority': priority,
             'critical_alerts': critical_alerts,
-            'recommendations': recommendations,
+            'recommendations': ["Continue monitoring and consult your healthcare provider if concerned."],
             'parent_message': parent_message,
-            'specialist_message': specialist_message,
+            'specialist_message': '',
         }
-
-    def _extract_message_body(self, text: str, header: str) -> str:
-        """Extract message body after a header, cleaning up artifacts"""
-        text = text.strip()
-        # Remove the header if present
-        for prefix in [header, header.rstrip(':')]:
-            if text.upper().startswith(prefix.upper()):
-                text = text[len(prefix):].strip()
-        return text
 
     def _fallback_clinical_reasoning(self,
                                      vital_signs: Dict[str, Any],
@@ -562,6 +634,18 @@ class FusionEngine:
 
     def _clean_llm_output(self, text: str) -> str:
         """Clean up LLM output by removing artifacts, code blocks, and deduplicating"""
+        # Remove echoed prompt template fragments (model parroting instructions back)
+        template_patterns = [
+            r'<each concerning finding[^>]*>',
+            r'<one of CRITICAL[^>]*>',
+            r'<A message for parents[^>]*>',
+            r'<Clinical note[^>]*>',
+            r'<a clinical note[^>]*>',
+            r'<Write a clinical[^>]*>',
+        ]
+        for pattern in template_patterns:
+            text = re.sub(pattern, '', text, flags=re.IGNORECASE)
+
         # Remove special tokens
         for token in ['<|assistant|>', '<|end|>', '<|sample_code>', '<|sample_code|>',
                       '<|code|>', '<|endoftext|>', '<|im_end|>', '<|separator|>',
