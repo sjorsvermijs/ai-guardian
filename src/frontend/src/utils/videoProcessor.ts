@@ -9,7 +9,7 @@
 
 const TARGET_FPS = 30;
 const TARGET_DURATION = 10; // seconds
-const SCREENSHOT_COUNT = 10;
+const SCREENSHOT_COUNT = 3;
 const AUDIO_SAMPLE_RATE = 16000;
 const MAX_FRAME_WIDTH = 640;
 const MAX_FRAME_HEIGHT = 480;

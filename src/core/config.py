@@ -56,9 +56,13 @@ class Config:
 
         # VGA (Visual Grading Assessment) Configuration
         self.vga_config = {
-            'screenshot_count': 10,
-            'model_path': MODELS_DIR / 'vga_model',
-            'confidence_threshold': 0.7
+            'screenshot_count': 3,
+            'base_model': 'google/medgemma-1.5-4b-it',
+            'adapter_repo': 'dinopasic/medgemma-skin-v2',
+            'model_path': MODELS_DIR / 'vga_skin_adapter',
+            'hf_token': os.getenv('HF_TOKEN', ''),
+            'confidence_threshold': 0.7,
+            'labels': ['healthy', 'eczema', 'chickenpox'],
         }
 
         # Cry Pipeline Configuration

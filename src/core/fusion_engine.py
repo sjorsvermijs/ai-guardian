@@ -180,7 +180,7 @@ class FusionEngine:
             triage = self._medgemma_clinical_reasoning(clinical_data, guideline_context)
         else:
             triage = self._fallback_clinical_reasoning(
-                vital_signs, acoustic_indicators, guideline_context
+                vital_signs, acoustic_indicators, visual_indicators, guideline_context
             )
 
         priority = triage['priority']
@@ -303,13 +303,28 @@ class FusionEngine:
                     parts.append(f"- Sound Classification: {mc['prediction']} ({mc['confidence']*100:.0f}% confidence)")
             parts.append("")
 
-        # Visual Indicators
+        # Visual Indicators (Skin Classification)
         if visual_indicators:
-            parts.append("Visual Assessment:")
-            for key, value in visual_indicators.items():
-                if key not in ('status', 'message', 'image_shapes', 'num_screenshots_analyzed', 'skin_assessment'):
-                    parts.append(f"- {key.replace('_', ' ').title()}: {value}")
-            parts.append("")
+            skin = visual_indicators.get('skin_assessment', {})
+            if skin and skin.get('classification'):
+                parts.append("Visual Assessment (Skin Classification):")
+                classification = skin['classification']
+                confidence = skin.get('confidence', 0) * 100
+                parts.append(f"- Skin Condition: {classification} ({confidence:.0f}% confidence)")
+                if classification != 'healthy':
+                    parts.append(f"- Status: {skin.get('overall_status', 'concerning').upper()}")
+                per_shot = visual_indicators.get('per_screenshot', [])
+                if per_shot:
+                    preds = [s['prediction'] for s in per_shot]
+                    parts.append(f"- Screenshots analyzed: {len(per_shot)} ({', '.join(preds)})")
+                parts.append("")
+            else:
+                parts.append("Visual Assessment:")
+                for key, value in visual_indicators.items():
+                    if key not in ('status', 'message', 'image_shapes', 'num_screenshots_analyzed',
+                                   'skin_assessment', 'per_screenshot', 'labels'):
+                        parts.append(f"- {key.replace('_', ' ').title()}: {value}")
+                parts.append("")
 
         return "\n".join(parts)
 
@@ -528,6 +543,7 @@ class FusionEngine:
     def _fallback_clinical_reasoning(self,
                                      vital_signs: Dict[str, Any],
                                      acoustic_indicators: Dict[str, Any],
+                                     visual_indicators: Dict[str, Any] = None,
                                      guideline_context: str = "") -> Dict[str, Any]:
         """
         Simple rule-based fallback when MedGemma is unavailable.
@@ -549,6 +565,16 @@ class FusionEngine:
         if spo2 is not None:
             if spo2 < 92:
                 critical_alerts.append(f"Low oxygen saturation: {spo2:.0f}%")
+
+        # Check skin classification
+        if visual_indicators:
+            skin = visual_indicators.get('skin_assessment', {})
+            classification = skin.get('classification', '')
+            skin_confidence = skin.get('confidence', 0)
+            if classification in ('eczema', 'chickenpox') and skin_confidence > 0.6:
+                critical_alerts.append(
+                    f"Skin condition detected: {classification} ({skin_confidence*100:.0f}% confidence)"
+                )
 
         # Check acoustic findings
         hear_data = acoustic_indicators.get('hear', {})
