@@ -21,8 +21,8 @@ peft>=0.18.0
 bitsandbytes>=0.46.0
 
 # MedGemma for clinical interpretation (MLX optimized for Apple Silicon)
-# mlx>=0.0.8
-# mlx-lm>=0.0.9
+mlx>=0.0.8
+mlx-lm>=0.0.9
 
 # Data handling
 pandas>=2.0.0
