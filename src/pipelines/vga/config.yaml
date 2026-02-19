@@ -1,0 +1,52 @@
+# VGA Skin Classification — Scraping & Training Config
+
+output_dir: data/vga
+
+target_per_class: 800
+oversample_factor: 2.0
+
+quality:
+  min_width: 224
+  min_height: 224
+  max_width: 4096
+  max_height: 4096
+  min_file_kb: 10
+  max_file_kb: 8192
+  blur_threshold: 80.0
+
+dedup:
+  hash_algorithm: phash
+  hash_size: 16
+  hamming_threshold: 8
+
+classes:
+  healthy:
+    folder: healthy
+    queries:
+      - "baby"
+      - "newborn baby"
+      - "healthy baby"
+      - "cute baby"
+
+  eczema:
+    folder: eczema
+    queries:
+      - "baby eczema"
+      - "infant eczema"
+      - "toddler eczema"
+      - "baby eczema rash"
+
+  chickenpox:
+    folder: chickenpox
+    queries:
+      - "baby chickenpox"
+      - "infant chickenpox"
+      - "child chickenpox"
+      - "chickenpox rash baby"
+
+scraper:
+  backend: google
+  images_per_query: 400
+  scroll_pause: 2.0
+  headless: true
+  sleep_between_queries: 5

@@ -1,1 +1,1 @@
-"""Pipeline modules for HeAR, rPPG, and MedGemma VQA"""
+"""Pipeline modules for HeAR, rPPG, Cry, and VGA"""

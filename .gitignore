@@ -222,6 +222,12 @@ data/sprsound_embeddings/
 data/donate_a_cry/
 data/donate_a_cry_embeddings/
 
+# VGA skin dataset (scraped images — large, reproduced via scrape.py)
+data/vga/
+
+# Training runs (checkpoints, logs)
+runs/
+
 # Model files
 models/
 

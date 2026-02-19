@@ -22,6 +22,14 @@ bitsandbytes>=0.46.0
 torchvision>=0.15.0
 Pillow>=10.0.0
 
+# VGA Data Pipeline (scraping, dedup, quality filter)
+selenium>=4.20.0
+webdriver-manager>=4.0.0
+duckduckgo-search>=6.0.0
+requests>=2.31.0
+imagehash>=4.3.0
+tqdm>=4.66.0
+
 # MedGemma for clinical interpretation (MLX optimized for Apple Silicon)
 mlx>=0.0.8
 mlx-lm>=0.0.9

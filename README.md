@@ -15,7 +15,7 @@ AI Guardian processes a 10-second video clip through four parallel AI pipelines:
 | **rPPG** | Video frames (300 @ 30 FPS) | Extracts heart rate, respiratory rate, SpO2, and HRV from subtle skin color changes |
 | **Cry** | Audio (16 kHz mono) | Classifies baby cry type: hungry, discomfort, belly pain, tired, burping, cold |
 | **HeAR** | Audio (16 kHz mono) | Detects respiratory abnormalities using Google's Health Acoustic Representations |
-| **VGA** | 10 screenshots | Visual grading assessment for skin conditions (placeholder — under development) |
+| **VGA** | 3+ screenshots | Skin condition classification (healthy/eczema/chickenpox) via fine-tuned MedGemma LoRA |
 
 Results from all pipelines are fused by a **MedGemma 4B** clinical reasoning engine that generates:
 - A **parent-friendly message** explaining findings in plain language
@@ -46,7 +46,14 @@ ai-guardian/
 │   │   ├── rppg/pipeline.py        # Contactless vital signs (open-rppg)
 │   │   ├── cry/pipeline.py         # Baby cry classification (AST/HuBERT + SVM)
 │   │   ├── hear/pipeline.py        # Respiratory sound analysis (Google HeAR)
-│   │   └── vga/pipeline.py         # Visual assessment (placeholder stub)
+│   │   └── vga/
+│   │       ├── pipeline.py         # Runtime skin classifier (MedGemma LoRA)
+│   │       ├── config.yaml         # Scraping & training configuration
+│   │       ├── scrape.py           # Google Images scraper (Selenium)
+│   │       ├── deduplicate.py      # Perceptual hash deduplication
+│   │       ├── quality_filter.py   # Resolution & blur filter
+│   │       ├── finetune.py         # QLoRA finetuning (RTX 3070)
+│   │       └── inference.py        # Standalone eval & prediction
 │   └── utils/
 │       └── preprocessing.py        # Audio/video/image preprocessing helpers
 ├── tests/                          # Pytest test suite
@@ -188,7 +195,28 @@ Uses [Google's HeAR model](https://huggingface.co/google/hear-pytorch) to extrac
 
 ### VGA (Visual Grading Assessment)
 
-Placeholder stub. Intended for skin condition analysis from video screenshots. Returns a placeholder result.
+Classifies infant skin conditions from video screenshots using a QLoRA fine-tuned [MedGemma 1.5 4B](https://huggingface.co/google/medgemma-1.5-4b-it) model (4-bit NF4 quantization). Processes multiple screenshots via majority vote.
+
+**Labels**: healthy, eczema, chickenpox.
+
+**Data pipeline** (scrape → dedup → filter → train):
+
+```bash
+# 1. Scrape images from Google Images
+python -m src.pipelines.vga.scrape
+
+# 2. Deduplicate with perceptual hashing
+python -m src.pipelines.vga.deduplicate
+
+# 3. Quality filter (resolution, blur, file size)
+python -m src.pipelines.vga.quality_filter
+
+# 4. Fine-tune LoRA adapter (~2h on RTX 3070)
+python -m src.pipelines.vga.finetune
+
+# 5. Evaluate
+python -m src.pipelines.vga.inference --eval
+```
 
 ### Fusion Engine (MedGemma 4B)
 
