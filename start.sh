@@ -52,7 +52,7 @@ BACKEND_PID=$!
 
 # Wait for backend to be ready
 echo -n "  Waiting for backend"
-for i in $(seq 1 60); do
+for i in $(seq 1 120); do
     if curl -s http://localhost:8000/health > /dev/null 2>&1; then
         echo " ready!"
         break
@@ -67,7 +67,7 @@ done
 
 # Check if backend actually started
 if ! curl -s http://localhost:8000/health > /dev/null 2>&1; then
-    echo " TIMEOUT (backend not ready after 60s)"
+    echo " TIMEOUT (backend not ready after 120s)"
     kill $BACKEND_PID 2>/dev/null || true
     exit 1
 fi
