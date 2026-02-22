@@ -660,6 +660,14 @@ class FusionEngine:
 
     def _clean_llm_output(self, text: str) -> str:
         """Clean up LLM output by removing artifacts, code blocks, and deduplicating"""
+        # Truncate at the first turn boundary — if the model generates past its
+        # assistant response and starts a new <|user|>, <|system|>, or <|end|> turn,
+        # everything from that point onward is echoed prompt garbage.
+        for boundary in ['<|user|>', '<|system|>', '<|end|>', '<|endoftext|>']:
+            idx = text.find(boundary)
+            if idx != -1:
+                text = text[:idx]
+
         # Remove echoed prompt template fragments (model parroting instructions back)
         template_patterns = [
             r'<each concerning finding[^>]*>',
