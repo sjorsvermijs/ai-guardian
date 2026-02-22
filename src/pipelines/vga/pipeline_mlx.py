@@ -230,6 +230,8 @@ class VGAPipelineMLX(BasePipeline):
                 errors=["No images provided for batch processing"],
                 metadata={}
             )
+        
+        logger.info("Processing batch of %d images through VGA MLX Pipeline...", len(images))
 
         try:
             per_screenshot = []

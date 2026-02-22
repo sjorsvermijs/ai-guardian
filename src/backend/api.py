@@ -510,6 +510,55 @@ async def process_video_endpoint(request: VideoProcessRequest):
         )
 
         rppg_result, cry_result, hear_result, vga_result = results
+        logger.info("\n================ PIPELINE RESULTS ================")
+        def log_pipeline_result(label, result):
+            if result is None:
+                logger.info(f"{label} Result: None")
+                return
+            logger.info(f"{label} Result:")
+            if hasattr(result, 'pipeline_name'):
+                logger.info(f"  pipeline_name: {getattr(result, 'pipeline_name', None)}")
+            if hasattr(result, 'timestamp'):
+                logger.info(f"  timestamp: {getattr(result, 'timestamp', None)}")
+            if hasattr(result, 'confidence'):
+                logger.info(f"  confidence: {getattr(result, 'confidence', None)}")
+            if hasattr(result, 'data'):
+                logger.info(f"  data:")
+                data = getattr(result, 'data', {})
+                if isinstance(data, dict):
+                    for k, v in data.items():
+                        logger.info(f"    {k}: {v}")
+                else:
+                    logger.info(f"    {data}")
+            if hasattr(result, 'warnings'):
+                warnings = getattr(result, 'warnings', [])
+                if warnings:
+                    logger.info(f"  warnings:")
+                    for w in warnings:
+                        logger.info(f"    - {w}")
+            if hasattr(result, 'errors'):
+                errors = getattr(result, 'errors', [])
+                if errors:
+                    logger.info(f"  errors:")
+                    for e in errors:
+                        logger.info(f"    - {e}")
+            if hasattr(result, 'metadata'):
+                logger.info(f"  metadata:")
+                metadata = getattr(result, 'metadata', {})
+                if isinstance(metadata, dict):
+                    for k, v in metadata.items():
+                        logger.info(f"    {k}: {v}")
+                else:
+                    logger.info(f"    {metadata}")
+            # If not a PipelineResult, fallback to string
+            if not hasattr(result, 'pipeline_name'):
+                logger.info(f"  {result}")
+
+        log_pipeline_result("rPPG", rppg_result)
+        log_pipeline_result("Cry", cry_result)
+        log_pipeline_result("HeAR", hear_result)
+        log_pipeline_result("VGA", vga_result)
+        logger.info("=================================================")
 
         # Generate AI-powered triage report using FusionEngine
         triage_report = None

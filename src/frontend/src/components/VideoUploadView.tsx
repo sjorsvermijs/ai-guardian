@@ -159,7 +159,7 @@ export function VideoUploadView({ onError }: VideoUploadViewProps) {
         }
       );
 
-      setExtractionProgress('Uploading to backend...');
+      setExtractionProgress('Uploading video...');
       setProgressPercent(100);
       setIsExtracting(false);
       setIsUploading(true);

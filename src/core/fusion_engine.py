@@ -182,6 +182,31 @@ class FusionEngine:
             triage = self._fallback_clinical_reasoning(
                 vital_signs, acoustic_indicators, visual_indicators, guideline_context
             )
+        logger.info("--- TRIAGE RESULT SUMMARY ---")
+        for key, label in [
+            ("priority", "Triage Priority"),
+            ("critical_alerts", "Critical Alerts"),
+            ("recommendations", "Recommendations"),
+        ]:
+            value = triage.get(key)
+            if isinstance(value, list):
+                logger.info(f"{label}:")
+                for item in value:
+                    for line in str(item).splitlines():
+                        logger.info(f"  - {line}")
+            else:
+                logger.info(f"{label}: {value}")
+
+        for key, label in [
+            ("parent_message", "Parent Message"),
+            ("specialist_message", "Specialist Message"),
+        ]:
+            value = triage.get(key, "")
+            if value:
+                logger.info(f"{label}:")
+                for line in str(value).splitlines():
+                    logger.info(f"  {line}")
+        logger.info("----------------------------")
 
         priority = triage['priority']
         critical_alerts = triage['critical_alerts']
