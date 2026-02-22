@@ -35,24 +35,38 @@
   box-shadow: 0 2px 12px rgba(0, 0, 0, 0.3);
 }
 
+.app-header-content {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+}
+
+.app-logo {
+  width: 36px;
+  height: 36px;
+}
+
 .app-header h1 {
   color: #fff;
   font-size: 20px;
   font-weight: 700;
   margin: 0;
   letter-spacing: -0.3px;
+  text-align: left;
 }
 
 .app-subtitle {
   color: rgba(148, 163, 184, 0.8);
   font-size: 12px;
-  margin-top: 2px;
+  margin-top: 1px;
   font-weight: 400;
+  text-align: left;
 }
 
 .app-main {
   flex: 1;
-  margin-top: 56px;
+  margin-top: 64px;
   position: relative;
   overflow-y: auto;
 }
@@ -100,7 +114,7 @@
   }
 
   .app-main {
-    margin-top: 52px;
+    margin-top: 60px;
   }
 }
 

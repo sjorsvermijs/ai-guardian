@@ -8,8 +8,13 @@ function App() {
   return (
     <div className="app">
       <header className="app-header">
-        <h1>AI Guardian</h1>
-        <p className="app-subtitle">Infant Health Monitor</p>
+        <div className="app-header-content">
+          <img src="/ai-guardian-logo.svg" alt="AI Guardian" className="app-logo" />
+          <div>
+            <h1>AI Guardian</h1>
+            <p className="app-subtitle">Infant Health Monitor</p>
+          </div>
+        </div>
       </header>
 
       <main className="app-main">
