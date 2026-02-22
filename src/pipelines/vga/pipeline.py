@@ -56,19 +56,12 @@ class VGAPipeline(BasePipeline):
         self.hf_token = config.get('hf_token', '') or os.environ.get('HF_TOKEN', '')
         self.confidence_threshold = config.get('confidence_threshold', 0.7)
         self.labels = config.get('labels', LABELS)
-        if torch.cuda.is_available():
-            self.device = "cuda"
-        elif torch.backends.mps.is_available():
-            self.device = "mps"
-        else:
-            self.device = "cpu"
+        self.device = "cuda" if torch.cuda.is_available() else "cpu"
 
     def initialize(self) -> bool:
         """
         Download the LoRA adapter from HuggingFace (if not cached),
-        then load the base model + adapter.
-
-        Uses 4-bit NF4 quantization on CUDA, or float16 on MPS/CPU.
+        then load the 4-bit base model + adapter.
         """
         try:
             logger.info("Initializing VGA Pipeline (MedGemma skin classifier)...")
@@ -92,31 +85,22 @@ class VGAPipeline(BasePipeline):
                 str(self.adapter_path), token=self.hf_token or None
             )
 
-            # Load base model — 4-bit NF4 on CUDA, float16 on MPS/CPU
-            from transformers import Gemma3ForConditionalGeneration
-            if torch.cuda.is_available():
-                from transformers import BitsAndBytesConfig
-                logger.info("Loading base model in 4-bit NF4 (CUDA)...")
-                bnb_config = BitsAndBytesConfig(
-                    load_in_4bit=True,
-                    bnb_4bit_quant_type="nf4",
-                    bnb_4bit_compute_dtype=torch.bfloat16,
-                    bnb_4bit_use_double_quant=True,
-                )
-                base_model = Gemma3ForConditionalGeneration.from_pretrained(
-                    self.base_model_id,
-                    quantization_config=bnb_config,
-                    device_map=self.device,
-                    torch_dtype=torch.bfloat16,
-                    token=self.hf_token or None,
-                )
-            else:
-                logger.info("Loading base model in float16 (%s)...", self.device)
-                base_model = Gemma3ForConditionalGeneration.from_pretrained(
-                    self.base_model_id,
-                    torch_dtype=torch.float16,
-                    token=self.hf_token or None,
-                ).to(self.device)
+            # Load base model in 4-bit
+            from transformers import BitsAndBytesConfig, Gemma3ForConditionalGeneration
+            logger.info("Loading base model in 4-bit NF4...")
+            bnb_config = BitsAndBytesConfig(
+                load_in_4bit=True,
+                bnb_4bit_quant_type="nf4",
+                bnb_4bit_compute_dtype=torch.bfloat16,
+                bnb_4bit_use_double_quant=True,
+            )
+            base_model = Gemma3ForConditionalGeneration.from_pretrained(
+                self.base_model_id,
+                quantization_config=bnb_config,
+                device_map=self.device,
+                torch_dtype=torch.bfloat16,
+                token=self.hf_token or None,
+            )
 
             # Apply LoRA adapter
             from peft import PeftModel
@@ -152,10 +136,9 @@ class VGAPipeline(BasePipeline):
         text = self.processor.apply_chat_template(
             messages, tokenize=False, add_generation_prompt=True
         )
-        dtype = torch.bfloat16 if torch.cuda.is_available() else torch.float16
         inputs = self.processor(
             text=text, images=image, return_tensors="pt"
-        ).to(self.device, dtype=dtype)
+        ).to(self.device, dtype=torch.bfloat16)
 
         with torch.no_grad():
             output_ids = self.model.generate(
