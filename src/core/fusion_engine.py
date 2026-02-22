@@ -673,8 +673,9 @@ class FusionEngine:
             text = re.sub(pattern, '', text, flags=re.IGNORECASE)
 
         # Remove special tokens
-        for token in ['<|assistant|>', '<|end|>', '<|sample_code>', '<|sample_code|>',
-                      '<|code|>', '<|endoftext|>', '<|im_end|>', '<|separator|>',
+        for token in ['<|assistant|>', '<|user|>', '<|system|>', '<|end|>',
+                      '<|sample_code>', '<|sample_code|>', '<|code|>',
+                      '<|endoftext|>', '<|im_end|>', '<|separator|>',
                       '<separator|>', '<|separator>']:
             text = text.replace(token, '')
 
