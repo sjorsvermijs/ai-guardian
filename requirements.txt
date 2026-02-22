@@ -16,11 +16,15 @@ torchaudio>=2.0.0
 transformers>=5.0.0
 huggingface-hub>=0.19.0
 
-# VGA Skin Classification (MedGemma LoRA adapter, CUDA/CPU)
+# VGA Skin Classification — PyTorch/CUDA path (MedGemma LoRA adapter)
 peft>=0.18.0
 bitsandbytes>=0.46.0
 torchvision>=0.15.0
 Pillow>=10.0.0
+
+# VGA Skin Classification — MLX/Apple Silicon path (MedGemma 1.5 4B via mlx-vlm)
+mlx-vlm>=0.3.12
+datasets>=4.0.0
 
 # VGA Data Pipeline (scraping, dedup, quality filter)
 selenium>=4.20.0
