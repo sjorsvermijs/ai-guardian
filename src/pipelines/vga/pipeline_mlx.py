@@ -1,11 +1,11 @@
 """
-VGA (Visual Grading Assessment) Pipeline — Skin Condition Classifier
+VGA (Visual Grading Assessment) Pipeline — MLX-Optimized Skin Condition Classifier
 
-Analyzes video screenshots using a fine-tuned MedGemma LoRA adapter to classify
-infant skin conditions as: healthy | eczema | chickenpox
+Apple Silicon version using mlx-vlm for native Metal acceleration.
+Analyzes video screenshots using a fine-tuned LoRA adapter on MedGemma 1.5 4B
+to classify infant skin conditions as: healthy | eczema | chickenpox
 
-The adapter is loaded from HuggingFace (private repo, requires HF_TOKEN) on top
-of the 4-bit quantized MedGemma 1.5 4B base model.
+The PyTorch version (pipeline.py) is kept for CUDA users.
 """
 
 import logging
@@ -16,13 +16,11 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 import numpy as np
-import torch
 from PIL import Image
 from dotenv import load_dotenv
 
 from src.core.base_pipeline import BasePipeline, PipelineResult
 
-# Load environment variables from .env file in project root
 PROJECT_ROOT = Path(__file__).parent.parent.parent.parent
 load_dotenv(PROJECT_ROOT / ".env")
 
@@ -31,142 +29,125 @@ logger = logging.getLogger(__name__)
 LABELS = ["healthy", "eczema", "chickenpox"]
 
 USER_QUESTION = (
-    "Look at this photo of a baby's skin. "
-    "Classify the skin condition as exactly one of: healthy, eczema, chickenpox. "
-    "Respond with only that single word."
+    "This is a photo of a baby's skin. "
+    "Classify it as exactly one of: healthy, eczema, chickenpox. "
+    "Reply with ONLY one word: healthy, eczema, or chickenpox."
 )
 
 
-class VGAPipeline(BasePipeline):
+class VGAPipelineMLX(BasePipeline):
     """
-    VGA Pipeline — classifies infant skin conditions from video screenshots.
+    VGA Pipeline (MLX) — classifies infant skin conditions from video screenshots.
 
-    Uses a QLoRA fine-tuned MedGemma 1.5 4B model (4-bit NF4 quantization).
-    Processes 3 evenly-spaced screenshots, aggregates via majority vote.
+    Uses mlx-vlm with a LoRA adapter on MedGemma 1.5 4B for native Apple Silicon
+    inference. Processes 3 evenly-spaced screenshots, aggregates via majority vote.
     """
 
     def __init__(self, config: Dict[str, Any]):
         super().__init__(config)
         self.model = None
         self.processor = None
+        self.model_config = None
         self.screenshot_count = config.get('screenshot_count', 3)
-        self.base_model_id = config.get('base_model', 'google/medgemma-1.5-4b-it')
-        self.adapter_repo = config.get('adapter_repo', 'dinopasic/medgemma-skin-v2')
+        self.base_model_id = config.get(
+            'base_model_mlx', 'mlx-community/medgemma-1.5-4b-it-4bit'
+        )
         self.adapter_path: Optional[Path] = None
         self.hf_token = config.get('hf_token', '') or os.environ.get('HF_TOKEN', '')
         self.confidence_threshold = config.get('confidence_threshold', 0.7)
         self.labels = config.get('labels', LABELS)
-        if torch.cuda.is_available():
-            self.device = "cuda"
-        elif torch.backends.mps.is_available():
-            self.device = "mps"
-        else:
-            self.device = "cpu"
 
     def initialize(self) -> bool:
         """
-        Download the LoRA adapter from HuggingFace (if not cached),
-        then load the base model + adapter.
-
-        Uses 4-bit NF4 quantization on CUDA, or float16 on MPS/CPU.
+        Load the MedGemma 1.5 4B model via mlx-vlm and optionally apply
+        a LoRA adapter trained with finetune_mlx.py.
         """
         try:
-            logger.info("Initializing VGA Pipeline (MedGemma skin classifier)...")
+            logger.info("Initializing VGA Pipeline (MLX / Apple Silicon)...")
 
-            # Download adapter from HuggingFace if not already cached
-            model_path = Path(self.config.get('model_path', 'models/vga_skin_adapter'))
-            if not (model_path / 'adapter_model.safetensors').exists():
-                logger.info("Downloading adapter from %s ...", self.adapter_repo)
-                from huggingface_hub import snapshot_download
-                snapshot_download(
-                    repo_id=self.adapter_repo,
-                    local_dir=str(model_path),
-                    token=self.hf_token or None,
-                )
-            self.adapter_path = model_path
+            from mlx_vlm import load
+            from mlx_vlm.utils import load_config
 
-            # Load processor
-            from transformers import AutoProcessor
-            logger.info("Loading processor...")
-            self.processor = AutoProcessor.from_pretrained(
-                str(self.adapter_path), token=self.hf_token or None
+            # Check for MLX LoRA adapter
+            adapter_dir = Path(
+                self.config.get('model_path_mlx', 'models/vga_skin_adapter_mlx')
             )
+            adapter_file = adapter_dir / "adapters.safetensors"
 
-            # Load base model — 4-bit NF4 on CUDA, float16 on MPS/CPU
-            from transformers import Gemma3ForConditionalGeneration
-            if torch.cuda.is_available():
-                from transformers import BitsAndBytesConfig
-                logger.info("Loading base model in 4-bit NF4 (CUDA)...")
-                bnb_config = BitsAndBytesConfig(
-                    load_in_4bit=True,
-                    bnb_4bit_quant_type="nf4",
-                    bnb_4bit_compute_dtype=torch.bfloat16,
-                    bnb_4bit_use_double_quant=True,
-                )
-                base_model = Gemma3ForConditionalGeneration.from_pretrained(
+            if adapter_file.exists():
+                logger.info("Loading base model + MLX LoRA adapter from %s", adapter_dir)
+                self.model, self.processor = load(
                     self.base_model_id,
-                    quantization_config=bnb_config,
-                    device_map=self.device,
-                    torch_dtype=torch.bfloat16,
-                    token=self.hf_token or None,
+                    adapter_path=str(adapter_dir),
+                    tokenizer_config={"trust_remote_code": True},
                 )
             else:
-                logger.info("Loading base model in float16 (%s)...", self.device)
-                base_model = Gemma3ForConditionalGeneration.from_pretrained(
+                logger.info(
+                    "No MLX adapter found at %s — loading base model only. "
+                    "Run finetune_mlx.py to train an adapter.",
+                    adapter_dir,
+                )
+                self.model, self.processor = load(
                     self.base_model_id,
-                    torch_dtype=torch.float16,
-                    token=self.hf_token or None,
-                ).to(self.device)
+                    tokenizer_config={"trust_remote_code": True},
+                )
 
-            # Apply LoRA adapter
-            from peft import PeftModel
-            logger.info("Loading LoRA adapter from %s ...", self.adapter_path)
-            self.model = PeftModel.from_pretrained(base_model, str(self.adapter_path))
-            self.model.eval()
+            self.model_config = load_config(self.base_model_id)
+            self.adapter_path = adapter_dir
 
-            vram_gb = torch.cuda.memory_allocated() / 1e9 if torch.cuda.is_available() else 0
-            logger.info("VGA Pipeline ready. VRAM: %.2f GB", vram_gb)
+            logger.info("VGA Pipeline (MLX) ready — model: %s", self.base_model_id)
             self.is_initialized = True
             return True
 
         except Exception as e:
-            logger.error("Failed to initialize VGA Pipeline: %s", e, exc_info=True)
+            logger.error("Failed to initialize VGA MLX Pipeline: %s", e, exc_info=True)
             self.is_initialized = False
             return False
 
     def _predict_single(self, image: Image.Image) -> Dict[str, Any]:
         """
-        Run inference on a single PIL image.
+        Run inference on a single PIL image via mlx-vlm.
 
         Returns dict with keys: prediction, confidence, raw
         """
-        messages = [
-            {
-                "role": "user",
-                "content": [
-                    {"type": "image", "image": image},
-                    {"type": "text", "text": USER_QUESTION},
-                ],
-            }
-        ]
-        text = self.processor.apply_chat_template(
-            messages, tokenize=False, add_generation_prompt=True
-        )
-        dtype = torch.bfloat16 if torch.cuda.is_available() else torch.float16
-        inputs = self.processor(
-            text=text, images=image, return_tensors="pt"
-        ).to(self.device, dtype=dtype)
+        from mlx_vlm import generate
 
-        with torch.no_grad():
-            output_ids = self.model.generate(
-                **inputs,
-                max_new_tokens=10,
-                do_sample=False,
-                pad_token_id=self.processor.tokenizer.eos_token_id,
+        # Resize to 224x224 to reduce GPU memory usage
+        if image.width > 224 or image.height > 224:
+            image = image.resize((224, 224), Image.BILINEAR)
+
+        # Save image to a temporary file (mlx-vlm expects file paths)
+        import tempfile
+        with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as tmp:
+            image.save(tmp, format="JPEG", quality=95)
+            tmp_path = tmp.name
+
+        try:
+            # Use processor.apply_chat_template to match training format
+            # (image token BEFORE text, matching how mlx-vlm's trainer formats prompts)
+            messages = [
+                {"role": "user", "content": [
+                    {"type": "image"},
+                    {"type": "text", "text": USER_QUESTION},
+                ]},
+            ]
+            formatted_prompt = self.processor.apply_chat_template(
+                messages, tokenize=False, add_generation_prompt=True,
             )
 
-        new_tokens = output_ids[0, inputs["input_ids"].shape[1]:]
-        raw = self.processor.decode(new_tokens, skip_special_tokens=True).strip().lower()
+            result = generate(
+                self.model,
+                self.processor,
+                formatted_prompt,
+                [tmp_path],
+                max_tokens=10,
+                verbose=False,
+            )
+        finally:
+            os.unlink(tmp_path)
+
+        # mlx-vlm may return a GenerationResult object or a string
+        raw = (result.text if hasattr(result, 'text') else str(result)).strip().lower()
 
         # Match to known labels
         pred = "unknown"
@@ -183,7 +164,7 @@ class VGAPipeline(BasePipeline):
     def process(self, input_data: Any) -> PipelineResult:
         """Process a single image (numpy array H,W,C)."""
         if not self.is_initialized:
-            raise RuntimeError("VGA Pipeline not initialized. Call initialize() first.")
+            raise RuntimeError("VGA MLX Pipeline not initialized. Call initialize() first.")
 
         if not self.validate_input(input_data):
             return PipelineResult(
@@ -215,10 +196,10 @@ class VGAPipeline(BasePipeline):
                 },
                 warnings=[],
                 errors=[],
-                metadata={"labels": self.labels}
+                metadata={"labels": self.labels, "backend": "mlx"}
             )
         except Exception as e:
-            logger.error("VGA process error: %s", e, exc_info=True)
+            logger.error("VGA MLX process error: %s", e, exc_info=True)
             return PipelineResult(
                 pipeline_name="VGA",
                 timestamp=datetime.now(),
@@ -237,7 +218,7 @@ class VGAPipeline(BasePipeline):
         for the final classification and averages confidence scores.
         """
         if not self.is_initialized:
-            raise RuntimeError("VGA Pipeline not initialized. Call initialize() first.")
+            raise RuntimeError("VGA MLX Pipeline not initialized. Call initialize() first.")
 
         if not images or len(images) == 0:
             return PipelineResult(
@@ -299,12 +280,13 @@ class VGAPipeline(BasePipeline):
                 metadata={
                     "batch_size": len(images),
                     "vote_counts": dict(Counter(predictions)) if predictions else {},
-                    "model": self.adapter_repo,
+                    "model": self.base_model_id,
+                    "backend": "mlx",
                 }
             )
 
         except Exception as e:
-            logger.error("VGA batch error: %s", e, exc_info=True)
+            logger.error("VGA MLX batch error: %s", e, exc_info=True)
             return PipelineResult(
                 pipeline_name="VGA_Batch",
                 timestamp=datetime.now(),
@@ -333,7 +315,5 @@ class VGAPipeline(BasePipeline):
         if self.processor is not None:
             del self.processor
             self.processor = None
-        if torch.cuda.is_available():
-            torch.cuda.empty_cache()
         self.is_initialized = False
-        logger.info("VGA Pipeline cleaned up")
+        logger.info("VGA MLX Pipeline cleaned up")

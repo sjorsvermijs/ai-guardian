@@ -28,9 +28,24 @@ sys.path.insert(0, str(project_root))
 from src.pipelines.rppg.pipeline import RPPGPipeline
 from src.pipelines.cry.pipeline import CryPipeline
 from src.pipelines.hear.pipeline import HeARPipeline
-from src.pipelines.vga.pipeline import VGAPipeline
 from src.core.config import config
 from src.core.fusion_engine import FusionEngine, TriageReport
+
+# Auto-detect Apple Silicon and prefer MLX VGA pipeline
+import platform as _platform
+_USE_MLX_VGA = (
+    _platform.system() == "Darwin" and _platform.machine() == "arm64"
+)
+
+if _USE_MLX_VGA:
+    try:
+        from src.pipelines.vga.pipeline_mlx import VGAPipelineMLX as VGAPipeline
+        logging.getLogger("ai_guardian").info("VGA: using MLX backend (Apple Silicon)")
+    except ImportError:
+        from src.pipelines.vga.pipeline import VGAPipeline
+        logging.getLogger("ai_guardian").info("VGA: mlx-vlm not installed, falling back to PyTorch")
+else:
+    from src.pipelines.vga.pipeline import VGAPipeline
 
 logging.basicConfig(
     level=logging.INFO,
@@ -103,12 +118,12 @@ async def startup_event():
         logger.error("Failed to initialize HeAR pipeline: %s", e)
         hear_pipeline = None
 
-    # Initialize VGA pipeline (placeholder stub)
+    # Initialize VGA pipeline (skin condition classification)
     logger.info("Initializing VGA pipeline...")
     try:
         vga_pipeline = VGAPipeline(config.get_pipeline_config('vga'))
         vga_pipeline.initialize()
-        logger.info("VGA Pipeline ready (placeholder stub)")
+        logger.info("VGA Pipeline ready")
     except Exception as e:
         logger.error("Failed to initialize VGA pipeline: %s", e)
         vga_pipeline = None

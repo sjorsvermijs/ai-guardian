@@ -588,18 +588,18 @@ export function VideoUploadView({ onError }: VideoUploadViewProps) {
               {/* VGA Results */}
               <div className="result-card vga-card">
                 <h3>👁️ Visual Assessment (VGA)</h3>
-                {results.vga ? (
+                {results.vga && results.vga.status ? (
                   <>
                     <div className="info-item">
                       <span className="info-label">Status</span>
-                      <span className="info-value warning">{results.vga.status || 'Processing'}</span>
+                      <span className="info-value warning">{results.vga.status}</span>
                     </div>
                     {results.vga.message && (
                       <p className="vga-message">{results.vga.message}</p>
                     )}
                   </>
                 ) : (
-                  <p className="no-data">No VGA data available</p>
+                  <p className="no-data">VGA pipeline not available</p>
                 )}
               </div>
             </div>

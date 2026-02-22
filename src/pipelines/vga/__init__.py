@@ -2,4 +2,9 @@
 
 from .pipeline import VGAPipeline
 
-__all__ = ['VGAPipeline']
+try:
+    from .pipeline_mlx import VGAPipelineMLX
+except ImportError:
+    VGAPipelineMLX = None
+
+__all__ = ['VGAPipeline', 'VGAPipelineMLX']
