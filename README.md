@@ -2,7 +2,9 @@
 
 **Infant Health Monitor** — a multi-modal AI system that analyzes video of infants to assess health status using four parallel pipelines and a clinical reasoning engine.
 
-Upload a short video of your baby and AI Guardian will extract vital signs from the video, classify audio (cry detection + respiratory sounds), and generate a triage report with messages for both parents and healthcare providers.
+Upload a short video of your baby and AI Guardian will extract vital signs from the video, classify audio (cry detection + respiratory sounds), assess skin condition, and generate a triage report with messages for both parents and healthcare providers.
+
+Built for the [MedGemma Impact Challenge](https://www.kaggle.com/competitions/medgemma-impact-challenge) on Kaggle, hosted by Google Research. Uses three HAI-DEF models: **MedGemma 4B** (clinical reasoning), **MedGemma 1.5 4B** (skin classification), and **Google HeAR** (respiratory audio analysis). All processing runs locally on Apple Silicon — no data is sent to the cloud.
 
 > **Disclaimer**: This is a research prototype and is NOT approved for clinical use. Always consult qualified healthcare professionals for medical decisions.
 
@@ -10,19 +12,17 @@ Upload a short video of your baby and AI Guardian will extract vital signs from 
 
 AI Guardian processes a 10-second video clip through four parallel AI pipelines:
 
-| Pipeline | Input | What It Does |
-|----------|-------|-------------|
-| **rPPG** | Video frames (300 @ 30 FPS) | Extracts heart rate, respiratory rate, SpO2, and HRV from subtle skin color changes |
-| **Cry** | Audio (16 kHz mono) | Classifies baby cry type: hungry, discomfort, belly pain, tired, burping, cold |
-| **HeAR** | Audio (16 kHz mono) | Detects respiratory abnormalities using Google's Health Acoustic Representations |
-| **VGA** | 3+ screenshots | Skin condition classification (healthy/eczema/chickenpox) via fine-tuned MedGemma LoRA |
+| Pipeline | Input | What It Does | Model |
+|----------|-------|-------------|-------|
+| **rPPG** | Video frames (300 @ 30 FPS) | Extracts heart rate, respiratory rate, SpO2, and HRV from subtle skin color changes | open-rppg ME-chunk |
+| **Cry** | Audio (16 kHz mono) | Classifies baby cry type: hungry, discomfort, belly pain, tired, burping, cold | AST + SVM |
+| **HeAR** | Audio (16 kHz mono) | Detects respiratory abnormalities using Google's Health Acoustic Representations | Google HeAR (HAI-DEF) |
+| **VGA** | 3+ screenshots | Skin condition classification (healthy / eczema / chickenpox) via MedGemma 1.5 4B | MedGemma 1.5 4B (HAI-DEF) |
 
-Results from all pipelines are fused by a **MedGemma 4B** clinical reasoning engine that generates:
+Results from all pipelines are fused by a **MedGemma 4B** (HAI-DEF) clinical reasoning engine that generates:
 - A **parent-friendly message** explaining findings in plain language
 - A **clinical note** for healthcare providers with medical terminology
 - A **triage priority** level (Critical / Urgent / Moderate / Low)
-
-All processing runs locally on your machine. No data is sent to the cloud.
 
 ## Project Structure
 
@@ -41,19 +41,21 @@ ai-guardian/
 │   ├── core/
 │   │   ├── base_pipeline.py        # Pipeline interface (PipelineResult)
 │   │   ├── config.py               # All pipeline configurations
-│   │   └── fusion_engine.py        # MedGemma-powered clinical reasoning
+│   │   └── fusion_engine.py        # MedGemma 4B clinical reasoning
 │   ├── pipelines/
 │   │   ├── rppg/pipeline.py        # Contactless vital signs (open-rppg)
-│   │   ├── cry/pipeline.py         # Baby cry classification (AST/HuBERT + SVM)
-│   │   ├── hear/pipeline.py        # Respiratory sound analysis (Google HeAR)
+│   │   ├── cry/pipeline.py         # Baby cry classification (AST + SVM)
+│   │   ├── hear/pipeline.py        # Respiratory sounds (Google HeAR + MLP)
 │   │   └── vga/
-│   │       ├── pipeline.py         # Runtime skin classifier (MedGemma LoRA)
-│   │       ├── config.yaml         # Scraping & training configuration
+│   │       ├── pipeline_mlx.py     # Skin classifier — MLX / Apple Silicon
+│   │       ├── pipeline.py         # Skin classifier — PyTorch / CUDA
+│   │       ├── finetune_mlx.py     # LoRA fine-tuning (MLX)
+│   │       ├── finetune.py         # QLoRA fine-tuning (PyTorch)
+│   │       ├── inference_mlx.py    # Standalone eval (MLX)
+│   │       ├── inference.py        # Standalone eval (PyTorch)
 │   │       ├── scrape.py           # Google Images scraper (Selenium)
 │   │       ├── deduplicate.py      # Perceptual hash deduplication
-│   │       ├── quality_filter.py   # Resolution & blur filter
-│   │       ├── finetune.py         # QLoRA finetuning (RTX 3070)
-│   │       └── inference.py        # Standalone eval & prediction
+│   │       └── quality_filter.py   # Resolution & blur filter
 │   └── utils/
 │       └── preprocessing.py        # Audio/video/image preprocessing helpers
 ├── tests/                          # Pytest test suite
@@ -69,7 +71,8 @@ ai-guardian/
 
 - **Python 3.10+**
 - **Node.js 18+** (for the frontend)
-- **Apple Silicon Mac** recommended (MedGemma uses MLX for fast local inference)
+- **Apple Silicon Mac** required for MLX pipelines (MedGemma + VGA). NVIDIA GPU alternative for PyTorch/CUDA path.
+- **16GB+ unified memory** recommended (8GB works but VGA must be disabled alongside FusionEngine)
 - **Hugging Face account** with access to gated models (HeAR, MedGemma)
 
 ### 1. Clone and Set Up Python
@@ -96,8 +99,9 @@ huggingface-cli login
 ```
 
 Then request access to these gated models on huggingface.co:
-- [google/hear-pytorch](https://huggingface.co/google/hear-pytorch) — respiratory audio analysis
-- [mlx-community/medgemma-4b-it-4bit](https://huggingface.co/mlx-community/medgemma-4b-it-4bit) — clinical reasoning
+- [google/hear-pytorch](https://huggingface.co/google/hear-pytorch) — respiratory audio analysis (HeAR)
+- [mlx-community/medgemma-4b-it-4bit](https://huggingface.co/mlx-community/medgemma-4b-it-4bit) — clinical reasoning (FusionEngine)
+- [mlx-community/medgemma-1.5-4b-it-4bit](https://huggingface.co/mlx-community/medgemma-1.5-4b-it-4bit) — skin classification (VGA)
 
 ### 3. Train Classifiers (First Time Only)
 
@@ -135,7 +139,7 @@ In a separate terminal (with the virtual environment activated):
 python -m src.backend.api
 ```
 
-The backend starts at `http://localhost:8000`. On first launch it loads all pipeline models (this takes 30-60 seconds).
+The backend starts at `http://localhost:8000`. On first launch it downloads and loads all pipeline models (this takes 30-60 seconds).
 
 ### 6. Use It
 
@@ -189,17 +193,26 @@ Two-stage pipeline: first extracts 768-dimensional embeddings using an [Audio Sp
 
 ### HeAR (Health Acoustic Representations)
 
-Uses [Google's HeAR model](https://huggingface.co/google/hear-pytorch) to extract 512-dimensional health-aware audio embeddings, then classifies with MLP classifiers trained on the [SPRSound](https://github.com/SJTU-YONGFU-RESEARCH-GRP/SPRSound) dataset.
+Uses [Google's HeAR model](https://huggingface.co/google/hear-pytorch) (HAI-DEF) to extract 512-dimensional health-aware audio embeddings, then classifies with MLP classifiers trained on the [SPRSound](https://github.com/SJTU-YONGFU-RESEARCH-GRP/SPRSound) dataset.
 
 **Outputs**: Binary classification (Normal vs Adventitious), multiclass classification (CAS/DAS/Normal/Poor quality).
 
+**Audio quality handling**: HeAR was trained on stethoscope-recorded lung sounds, so phone/ambient audio is out-of-distribution. The pipeline includes a 3-layer quality gate:
+1. If the multiclass classifier reports "Poor Quality", the binary prediction is overridden to "Inconclusive"
+2. If binary confidence is below 75%, the prediction is reported as "Inconclusive"
+3. The FusionEngine prompt includes a note that audio was captured via phone microphone and respiratory findings should be weighted accordingly
+
 ### VGA (Visual Grading Assessment)
 
-Classifies infant skin conditions from video screenshots using a QLoRA fine-tuned [MedGemma 1.5 4B](https://huggingface.co/google/medgemma-1.5-4b-it) model (4-bit NF4 quantization). Processes multiple screenshots via majority vote.
+Classifies infant skin conditions from video screenshots using [MedGemma 1.5 4B](https://huggingface.co/google/medgemma-1.5-4b-it) (HAI-DEF). Processes multiple screenshots and aggregates via majority vote.
 
 **Labels**: healthy, eczema, chickenpox.
 
-**Data pipeline** (scrape → dedup → filter → train):
+**Two backends** (auto-detected at startup):
+- **Apple Silicon (MLX)**: Uses `mlx-vlm` with the 4-bit quantized model (`mlx-community/medgemma-1.5-4b-it-4bit`). Currently runs as zero-shot classifier (76.6% test accuracy). Requires ~2.5GB memory.
+- **CUDA (PyTorch)**: Uses `transformers` + `peft` with a QLoRA fine-tuned adapter. Requires NVIDIA GPU with 4GB+ VRAM.
+
+**Data pipeline** (scrape, deduplicate, filter, fine-tune):
 
 ```bash
 # 1. Scrape images from Google Images
@@ -211,16 +224,24 @@ python -m src.pipelines.vga.deduplicate
 # 3. Quality filter (resolution, blur, file size)
 python -m src.pipelines.vga.quality_filter
 
-# 4. Fine-tune LoRA adapter (~2h on RTX 3070)
+# 4. Fine-tune LoRA adapter
+# Apple Silicon:
+python -m src.pipelines.vga.finetune_mlx
+# CUDA:
 python -m src.pipelines.vga.finetune
 
 # 5. Evaluate
-python -m src.pipelines.vga.inference --eval
+python -m src.pipelines.vga.inference_mlx --eval   # Apple Silicon
+python -m src.pipelines.vga.inference --eval        # CUDA
 ```
 
 ### Fusion Engine (MedGemma 4B)
 
-Combines all pipeline outputs with patient context (age, sex, parent observations) and uses [MedGemma 4B](https://huggingface.co/mlx-community/medgemma-4b-it-4bit) (quantized, running locally via MLX) to generate clinical interpretations.
+Combines all pipeline outputs with patient context (age, sex, parent observations) and uses [MedGemma 4B](https://huggingface.co/mlx-community/medgemma-4b-it-4bit) (HAI-DEF, quantized, running locally via MLX) to generate clinical interpretations.
+
+Uses a **two-pass architecture**:
+1. **Parent pass**: Generates priority level, critical alerts, and a plain-language parent message (max 120 words, no medical jargon)
+2. **Specialist pass**: Generates a clinical note with medical terminology, differential considerations, and recommended follow-up
 
 **Triage priority levels**:
 - **CRITICAL** — Immediate medical attention required (call emergency services)
@@ -233,8 +254,9 @@ Combines all pipeline outputs with patient context (age, sex, parent observation
 All pipeline parameters are in [src/core/config.py](src/core/config.py):
 
 - rPPG: model selection, FPS, filter bandpass, window size
-- HeAR: sample rate, chunk duration, overlap
+- HeAR: sample rate, chunk duration, overlap, confidence threshold
 - Cry: backend selection (AST vs HuBERT), embedding dimension
+- VGA: base model, adapter path, labels, confidence threshold
 - Fusion: pipeline weights, confidence thresholds, MedGemma toggle
 
 ## Development
@@ -255,12 +277,14 @@ cd src/frontend && npm run build
 
 ## Tech Stack
 
-**Backend**: Python 3.12, FastAPI, PyTorch, MLX, open-rppg, transformers, scikit-learn
+**Backend**: Python 3.12, FastAPI, PyTorch, MLX, mlx-vlm, open-rppg, transformers, scikit-learn
 
 **Frontend**: React 19, TypeScript, Vite
 
-**Models**: MedGemma 4B (MLX), Google HeAR, Audio Spectrogram Transformer, open-rppg ME-chunk
+**HAI-DEF Models**: MedGemma 4B (clinical reasoning), MedGemma 1.5 4B (skin classification), Google HeAR (respiratory audio)
+
+**Other Models**: Audio Spectrogram Transformer (cry embeddings), open-rppg ME-chunk (vital signs)
 
 ## License
 
-[Add your license here]
+Apache 2.0
