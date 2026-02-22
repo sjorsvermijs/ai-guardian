@@ -1,6 +1,8 @@
-# AI Guardian
+<p align="center">
+  <img src="src/frontend/public/ai-guardian-logo-vertical.svg" alt="AI Guardian — Infant Health Monitor" width="280" />
+</p>
 
-**Infant Health Monitor** — a multi-modal AI system that analyzes video of infants to assess health status using four parallel pipelines and a clinical reasoning engine.
+<p align="center">A multi-modal AI system that analyzes video of infants to assess health status using four parallel pipelines and a clinical reasoning engine.</p>
 
 Upload a short video of your baby and AI Guardian will extract vital signs from the video, classify audio (cry detection + respiratory sounds), assess skin condition, and generate a triage report with messages for both parents and healthcare providers.
 
