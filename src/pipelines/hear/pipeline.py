@@ -166,24 +166,14 @@ class HeARPipeline(BasePipeline):
                             multiclass_predictions.append(multi_prob)
 
                     # Aggregate predictions across chunks (average probabilities)
-                    if binary_predictions:
-                        avg_binary_prob = np.mean(binary_predictions, axis=0)
-                        binary_labels = ["Normal", "Adventitious"]
-                        binary_pred_idx = np.argmax(avg_binary_prob)
-
-                        result_data["binary_classification"] = {
-                            "prediction": binary_labels[binary_pred_idx],
-                            "confidence": float(avg_binary_prob[binary_pred_idx]),
-                            "probabilities": {
-                                label: float(prob)
-                                for label, prob in zip(binary_labels, avg_binary_prob)
-                            }
-                        }
-
+                    # Process multiclass FIRST so we can use "Poor Quality" to
+                    # override the binary classifier (which has no quality awareness).
+                    is_poor_quality = False
                     if multiclass_predictions:
                         avg_multi_prob = np.mean(multiclass_predictions, axis=0)
                         multi_labels = ["CAS", "CAS & DAS", "DAS", "Normal", "Poor Quality"]
                         multi_pred_idx = np.argmax(avg_multi_prob)
+                        is_poor_quality = multi_labels[multi_pred_idx] == "Poor Quality"
 
                         result_data["multiclass_classification"] = {
                             "prediction": multi_labels[multi_pred_idx],
@@ -193,6 +183,36 @@ class HeARPipeline(BasePipeline):
                                 for label, prob in zip(multi_labels, avg_multi_prob)
                             },
                             "note": "CAS=Crackles, DAS=Wheezes"
+                        }
+
+                    if binary_predictions:
+                        avg_binary_prob = np.mean(binary_predictions, axis=0)
+                        binary_labels = ["Normal", "Adventitious"]
+                        binary_pred_idx = np.argmax(avg_binary_prob)
+                        binary_confidence = float(
+                            avg_binary_prob[binary_pred_idx])
+
+                        # Override binary prediction when audio quality is poor or
+                        # confidence is too low. HeAR was trained on stethoscope
+                        # recordings; phone/ambient audio is out-of-distribution.
+                        min_confidence = self.config.get(
+                            'min_confidence', 0.75)
+                        if is_poor_quality:
+                            binary_prediction = "Inconclusive"
+                        elif binary_confidence < min_confidence:
+                            binary_prediction = "Inconclusive"
+                        else:
+                            binary_prediction = binary_labels[binary_pred_idx]
+
+                        result_data["binary_classification"] = {
+                            "prediction": binary_prediction,
+                            "confidence": binary_confidence,
+                            "raw_prediction": binary_labels[binary_pred_idx],
+                            "probabilities": {
+                                label: float(prob)
+                                for label, prob in zip(binary_labels, avg_binary_prob)
+                            },
+                            "audio_source": "ambient",
                         }
 
                     confidence = result_data.get("binary_classification", {}).get("confidence", 0.95)

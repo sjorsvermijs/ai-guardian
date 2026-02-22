@@ -297,7 +297,12 @@ class FusionEngine:
                 hear_data = acoustic_indicators['hear']
                 if 'binary_classification' in hear_data:
                     bc = hear_data['binary_classification']
+                    is_ambient = bc.get('audio_source') == 'ambient'
                     parts.append(f"- Respiratory Sounds: {bc['prediction']} ({bc['confidence']*100:.0f}% confidence)")
+                    if is_ambient:
+                        parts.append("  NOTE: Audio was captured via phone microphone (not stethoscope). "
+                                     "Respiratory sound classification may be unreliable due to ambient noise. "
+                                     "Treat respiratory findings with low weight unless confidence is very high.")
                 if 'multiclass_classification' in hear_data:
                     mc = hear_data['multiclass_classification']
                     parts.append(f"- Sound Classification: {mc['prediction']} ({mc['confidence']*100:.0f}% confidence)")
@@ -576,10 +581,10 @@ class FusionEngine:
                     f"Skin condition detected: {classification} ({skin_confidence*100:.0f}% confidence)"
                 )
 
-        # Check acoustic findings
+        # Check acoustic findings (only alert on high-confidence stethoscope-quality audio)
         hear_data = acoustic_indicators.get('hear', {})
         binary = hear_data.get('binary_classification', {})
-        if binary.get('prediction') == 'Adventitious' and binary.get('confidence', 0) > 0.6:
+        if binary.get('prediction') == 'Adventitious' and binary.get('confidence', 0) > 0.85:
             critical_alerts.append("Adventitious respiratory sounds detected")
 
         cry_data = acoustic_indicators.get('cry', {})
