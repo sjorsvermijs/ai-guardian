@@ -159,8 +159,6 @@ The backend starts at `http://localhost:8000`. On first launch it downloads and 
 | `GET` | `/health` | Health check |
 | `GET` | `/ready` | Pipeline readiness status |
 | `POST` | `/api/process-video` | Process uploaded video (main endpoint) |
-| `POST` | `/api/process-frames` | Process batch of rPPG frames only |
-| `WS` | `/ws/rppg` | Real-time WebSocket for live rPPG |
 
 ### POST /api/process-video
 
