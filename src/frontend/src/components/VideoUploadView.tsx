@@ -42,8 +42,13 @@ interface HeARResult {
 }
 
 interface VGAResult {
-  status?: string;
-  message?: string;
+  skin_assessment?: {
+    classification: string;
+    confidence: number;
+    severity: string;
+    overall_status: string;
+  };
+  error?: string;
 }
 
 interface TriageReport {
@@ -588,15 +593,24 @@ export function VideoUploadView({ onError }: VideoUploadViewProps) {
               {/* VGA Results */}
               <div className="result-card vga-card">
                 <h3>👁️ Visual Assessment (VGA)</h3>
-                {results.vga && results.vga.status ? (
+                {results.vga && results.vga.skin_assessment ? (
                   <>
                     <div className="info-item">
-                      <span className="info-label">Status</span>
-                      <span className="info-value warning">{results.vga.status}</span>
+                      <span className="info-label">Classification</span>
+                      <span className={`info-value ${results.vga.skin_assessment.classification === 'healthy' ? 'normal' : 'warning'}`}>
+                        {results.vga.skin_assessment.classification}
+                      </span>
                     </div>
-                    {results.vga.message && (
-                      <p className="vga-message">{results.vga.message}</p>
-                    )}
+                    <div className="info-item">
+                      <span className="info-label">Confidence</span>
+                      <span className="info-value">{(results.vga.skin_assessment.confidence * 100).toFixed(0)}%</span>
+                    </div>
+                    <div className="info-item">
+                      <span className="info-label">Status</span>
+                      <span className={`info-value ${results.vga.skin_assessment.overall_status === 'normal' ? 'normal' : 'warning'}`}>
+                        {results.vga.skin_assessment.overall_status}
+                      </span>
+                    </div>
                   </>
                 ) : (
                   <p className="no-data">VGA pipeline not available</p>
