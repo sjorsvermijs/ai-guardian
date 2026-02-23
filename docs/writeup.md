@@ -53,7 +53,7 @@ A single 10-second video is processed by four pipelines running in parallel, wit
 | rPPG     | open-rppg ME-chunk | HR, RR, SpO2, HRV from video        | Signal quality-dependent       | <100 MB |
 | Cry      | AST + SVM          | Cry type classification (6 classes) | Trained on Donate-a-Cry corpus | <100 MB |
 | HeAR     | Google HeAR + MLP  | Respiratory sound screening         | Quality-gated for phone audio  | ~400 MB |
-| VGA      | MedGemma 1.5 4B    | Skin classification (3 classes)     | 95.5% accuracy                 | ~2.5 GB |
+| VGA      | MedGemma 1.5 4B    | Skin classification (3 classes)     | 95.7% accuracy                 | ~2.5 GB |
 | Fusion   | MedGemma 4B        | Clinical reasoning + triage         | Two-pass (parent + specialist) | ~2.5 GB |
 
 **Deployment challenges and mitigations**:
