@@ -21,7 +21,7 @@
 
 **The unmet need**: No existing tool combines contactless vital signs, acoustic analysis, visual assessment, and clinical reasoning in a single consumer-accessible workflow. Telehealth requires synchronous clinician availability. Wearable monitors track single vital signs but lack interpretation. AI Guardian fills this gap by turning a smartphone camera into a multi-modal screening tool.
 
-**Impact potential**: There are approximately 385 million children under age 5 globally, with 140 million births per year. Even conservative adoption in two target populations — (1) after-hours triage for parents in developed countries (~50M households with infants in the US/EU), and (2) first-line screening in low-resource settings (~90M annual births in LMICs) — could reduce unnecessary ER visits by an estimated 15-20% while accelerating care for genuinely critical cases. Running entirely on-device means it works without reliable internet and keeps sensitive infant health data private — critical for adoption in both populations. The dual-output design (parent message + clinical note) enables integration into existing healthcare workflows rather than replacing them.
+**Impact potential**: There are approximately 385 million children under age 5 globally, with 140 million births per year. Even conservative adoption in two target populations — (1) after-hours triage for parents in developed countries (~50M households with infants in the US/EU), and (2) first-line screening in low-resource settings (~90M annual births in LMICs) — could reduce unnecessary ER visits by an estimated 15-20% while accelerating care for genuinely critical cases. The dual-output design (parent message + clinical note) enables integration into existing healthcare workflows rather than replacing them.
 
 ## Overall solution
 
@@ -61,7 +61,6 @@ A single 10-second video is processed by four pipelines running in parallel, wit
 - _Memory pressure_: 4-bit quantization for all LLMs; graceful pipeline disabling when memory is constrained
 - _Phone audio domain gap_: 3-layer quality gate prevents false alarms from non-stethoscope audio
 - _LLM output reliability_: Turn-boundary truncation and artifact sanitization ensure clean clinical output
-- _Latency_: Parallel pipeline execution via asyncio; end-to-end processing in ~2 minutes on M-series chips
 
 ### Practical deployment considerations
 
