@@ -43,7 +43,8 @@ ai-guardian/
 │   ├── core/
 │   │   ├── base_pipeline.py        # Pipeline interface (PipelineResult)
 │   │   ├── config.py               # All pipeline configurations
-│   │   └── fusion_engine.py        # MedGemma 4B clinical reasoning
+│   │   ├── fusion_engine.py        # MedGemma 4B clinical reasoning
+│   │   └── guidelines/             # Clinical guideline retrieval (NICE, WHO, PEWS)
 │   ├── pipelines/
 │   │   ├── rppg/pipeline.py        # Contactless vital signs (open-rppg)
 │   │   ├── cry/pipeline.py         # Baby cry classification (AST + SVM)
@@ -238,6 +239,13 @@ python -m src.pipelines.vga.inference --eval        # CUDA
 ### Fusion Engine (MedGemma 4B)
 
 Combines all pipeline outputs with patient context (age, sex, parent observations) and uses [MedGemma 4B](https://huggingface.co/mlx-community/medgemma-4b-it-4bit) (HAI-DEF, quantized, running locally via MLX) to generate clinical interpretations.
+
+**Guideline-grounded reasoning**: The FusionEngine includes a clinical guidelines retrieval system (`src/core/guidelines/`) that injects age-appropriate, domain-relevant guideline excerpts into the MedGemma prompt. Guidelines are sourced from:
+- **NICE NG143** — Fever in under 5s: assessment and initial management
+- **WHO IMCI** — Integrated Management of Childhood Illness
+- **PEWS** — Pediatric Early Warning Score
+
+The `GuidelineStore` uses deterministic retrieval (age filtering → domain matching → threshold scoring) to select the most relevant guideline chunks, ensuring MedGemma's reasoning is grounded in established clinical protocols rather than relying solely on parametric knowledge.
 
 Uses a **two-pass architecture**:
 1. **Parent pass**: Generates priority level, critical alerts, and a plain-language parent message (max 120 words, no medical jargon)
