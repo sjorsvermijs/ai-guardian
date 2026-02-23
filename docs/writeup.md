@@ -29,7 +29,7 @@ AI Guardian uses **three HAI-DEF models** in four complementary pipelines that l
 
 ![System Architecture](./architecture.png)
 
-**1. Heart (rPPG) - hearth-rate monitoring** — extracts heart rate, respiratory rate, SpO2, and HRV from imperceptible skin color changes in video frames, providing contactless vital sign monitoring without any wearable.
+**1. Heart (rPPG) — Heart-rate monitoring** — extracts heart rate, respiratory rate, SpO2, and HRV from imperceptible skin color changes in video frames, providing contactless vital sign monitoring without any wearable. The pipeline uses the open-rPPG library (ME-chunk.rlap model) to recover a blood volume pulse (BVP) signal, which is bandpass-filtered (0.7–4.0 Hz, 3rd-order Butterworth) to isolate physiologically relevant frequencies. A signal quality index (SQI) drives confidence scoring: when lighting or motion degrades the signal (SQI < 0.3), the system warns that results may be unreliable rather than returning false readings.
 
 **2. Cry — Baby cry classification.** The Cry pipeline analyzes audio from the uploaded video to classify the reason for a baby's cry. Audio is resampled to 16 kHz mono and passed through an Audio Spectrogram Transformer (AST) or HuBERT model to extract a 768-dimensional embedding. This embedding is then classified by a support vector machine (SVM) trained on the Donate-a-Cry dataset, predicting one of six cry types: belly pain, burping, cold, discomfort, hungry, or tired. The output includes the predicted cry type, class probabilities, and a confidence score.
 
